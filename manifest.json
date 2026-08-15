@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "asked.dashboard",
+  "name": "Dashboard",
+  "version": "1.0.0",
+  "author": "asked",
+  "description": "Clock with calendar, media, system and weather dashboard",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Dashboard",
+    "description": "Clock with a three-view dashboard",
+    "category": "Time",
+    "allowMultiple": false,
+    "defaultSection": "center",
+    "defaults": {
+      "format": "dddd HH:mm"
+    },
+    "schema": [
+      {
+        "key": "format",
+        "type": "string",
+        "label": "Clock format"
+      }
+    ]
+  }
+}
