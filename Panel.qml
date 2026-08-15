@@ -2,7 +2,6 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Services.Mpris
-import Quickshell.Services.Pipewire
 import qs.Commons
 import qs.Ui
 import "Model.js" as Model
@@ -58,8 +57,7 @@ Panel {
     }
     return options
   }
-  readonly property var audioSink: Pipewire.defaultAudioSink
-  readonly property real outputVolume: audioSink && audioSink.audio ? audioSink.audio.volume : 0
+  readonly property real appVolume: player && player.volumeSupported ? player.volume : 0
   readonly property bool seekAvailable: player && player.canSeek && player.positionSupported
     && player.lengthSupported && player.length > 0
   readonly property real trackPosition: seekAvailable ? Math.max(0, Math.min(sampledPosition, player.length)) : 0
@@ -131,9 +129,9 @@ Panel {
     player.position = sampledPosition
   }
 
-  function setOutputVolume(value) {
-    if (!audioSink || !audioSink.audio) return
-    audioSink.audio.volume = Math.max(0, Math.min(1, Number(value)))
+  function setAppVolume(value) {
+    if (!player || !player.volumeSupported) return
+    player.volume = Math.max(0, Math.min(1, Number(value)))
   }
 
   function formatDuration(seconds) {
@@ -308,10 +306,6 @@ Panel {
   SystemClock {
     precision: SystemClock.Minutes
     onDateChanged: root.today = date
-  }
-
-  PwObjectTracker {
-    objects: root.audioSink ? [root.audioSink] : []
   }
 
   KeyboardPanel {
@@ -709,11 +703,11 @@ Panel {
                 spacing: Style.space(2)
                 Row {
                   width: parent.width
-                  MutedText { text: "VOLUME"; font.pixelSize: Style.font.caption; font.letterSpacing: 1 }
+                  MutedText { text: "APP VOLUME"; font.pixelSize: Style.font.caption; font.letterSpacing: 1 }
                   MutedText {
-                    width: parent.width - Style.space(58)
+                    width: parent.width - Style.space(88)
                     horizontalAlignment: Text.AlignRight
-                    text: Math.round((volumeSlider.dragging ? volumeSlider.liveValue : root.outputVolume) * 100) + "%"
+                    text: Math.round((volumeSlider.dragging ? volumeSlider.liveValue : root.appVolume) * 100) + "%"
                     font.pixelSize: Style.font.caption
                   }
                 }
@@ -725,10 +719,10 @@ Panel {
                   maximum: 1
                   step: 0.05
                   knobSize: 0
-                  value: root.outputVolume
-                  enabled: !!(root.audioSink && root.audioSink.audio)
+                  value: root.appVolume
+                  enabled: !!root.player && root.player.volumeSupported
                   opacity: enabled ? 1 : 0.35
-                  onMoved: function(value) { root.setOutputVolume(value) }
+                  onMoved: function(value) { root.setAppVolume(value) }
                 }
               }
             }

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "cucu0628.dashboard",
   "name": "Dashboard",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "author": "cucu0628",
   "license": "MIT",
   "description": "Clock with calendar, media, system and weather dashboard",

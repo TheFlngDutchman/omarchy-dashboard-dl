@@ -32,7 +32,7 @@ Media, and Weather views.
 - MPRIS playback position updated every 500 ms.
 - Current and total playback time.
 - Seekable playback progress bar.
-- PipeWire system volume control.
+- Per-player MPRIS volume control for the selected media source.
 - Source selector when multiple MPRIS players are available.
 - Filters the `playerctld` proxy to avoid duplicate sources.
 
@@ -47,8 +47,7 @@ Media, and Weather views.
 ## Requirements
 
 - Omarchy 4 or newer with the current Omarchy Shell plugin API.
-- Quickshell with MPRIS and PipeWire services.
-- A working PipeWire audio setup for volume control.
+- Quickshell with MPRIS support.
 - `bash`, `curl`, `awk`, `df`, and the Linux `/proc` filesystem.
 - An internet connection for weather data.
 - An Omarchy Nerd Font-compatible font for icons.
@@ -140,7 +139,7 @@ The `format` setting accepts a Qt date and time format.
 - Use the `OVERVIEW`, `MEDIA`, and `WEATHER` tabs to switch views.
 - Use the calendar arrows to change the displayed month.
 - Click or drag a playback progress bar to seek.
-- The volume bar controls the default PipeWire output volume.
+- The volume bar controls the selected MPRIS player's own volume.
 - When multiple players are active, source buttons appear at the top of the
   Media view.
 - Press `Escape` to close the panel.
@@ -198,7 +197,7 @@ https://api.open-meteo.com/v1/forecast
 |---|---|
 | Date and time | Quickshell `SystemClock` |
 | Media | `Quickshell.Services.Mpris` |
-| Volume | `Quickshell.Services.Pipewire` |
+| Application volume | Selected MPRIS player's `volume` property |
 | CPU | `/proc/stat` |
 | Memory | `/proc/meminfo` |
 | Disk | `df -P /` |
@@ -243,9 +242,9 @@ This plugin:
 
 - reads local system statistics;
 - controls MPRIS players owned by the current user;
-- changes the PipeWire output volume;
+- changes the selected MPRIS player's own volume;
 - sends the configured weather coordinates to Open-Meteo;
-- does not use `sudo`;
+- does not request elevated privileges;
 - does not maintain its own database or history file.
 
 ## Troubleshooting
@@ -285,8 +284,8 @@ operation. This is common for live streams and media with an unknown length.
 
 ### Volume Control Does Not Work
 
-Check the default PipeWire output and Omarchy's built-in audio panel. The
-dashboard controls the same default PipeWire sink.
+Confirm that the selected player exports the MPRIS `volume` property. The
+slider is disabled when the application does not support MPRIS volume control.
 
 ### Weather Is Missing
 
