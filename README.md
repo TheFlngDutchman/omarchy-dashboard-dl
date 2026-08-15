@@ -68,7 +68,7 @@ omarchy plugin add https://github.com/cucu0628/omarchy-dashboard.git --enable --
 Omarchy clones the repository into:
 
 ```text
-~/.config/omarchy/plugins/asked.dashboard/
+~/.config/omarchy/plugins/cucu0628.dashboard/
 ```
 
 ### Manual Installation
@@ -76,14 +76,14 @@ Omarchy clones the repository into:
 Place the complete plugin directory at:
 
 ```text
-~/.config/omarchy/plugins/asked.dashboard/
+~/.config/omarchy/plugins/cucu0628.dashboard/
 ```
 
 Then rescan and enable it:
 
 ```bash
 omarchy-shell shell rescanPlugins
-omarchy plugin enable asked.dashboard
+omarchy plugin enable cucu0628.dashboard
 ```
 
 Verify the installation with:
@@ -92,7 +92,7 @@ Verify the installation with:
 omarchy-shell shell listPlugins
 ```
 
-The `asked.dashboard` entry should have `enabled` set to `true`.
+The `cucu0628.dashboard` entry should have `enabled` set to `true`.
 
 ## Top Bar Configuration
 
@@ -102,7 +102,7 @@ The default section is `center`. To replace the stock clock, replace the
 
 ```json
 {
-  "id": "asked.dashboard",
+  "id": "cucu0628.dashboard",
   "format": "dddd HH:mm"
 }
 ```
@@ -110,7 +110,7 @@ The default section is `center`. To replace the stock clock, replace the
 Set `centerAnchor` to the dashboard as well:
 
 ```json
-"centerAnchor": "asked.dashboard"
+"centerAnchor": "cucu0628.dashboard"
 ```
 
 Do not replace your entire `shell.json` with a short example. That file may
@@ -154,9 +154,9 @@ provide these capabilities.
 The dashboard can also be controlled directly:
 
 ```bash
-omarchy-shell asked.dashboard open
-omarchy-shell asked.dashboard close
-omarchy-shell asked.dashboard toggle
+omarchy-shell cucu0628.dashboard open
+omarchy-shell cucu0628.dashboard close
+omarchy-shell cucu0628.dashboard toggle
 ```
 
 These commands can be used from scripts or Hyprland keybindings.
@@ -209,12 +209,13 @@ System statistics refresh every three seconds while the panel is open.
 ## File Structure
 
 ```text
-asked.dashboard/
+cucu0628.dashboard/
 ├── manifest.json   # Omarchy plugin metadata and widget settings
 ├── BarWidget.qml   # Top-bar clock, click handling, and IPC entry point
 ├── Panel.qml       # Dashboard UI, services, and data collection
 ├── Model.js        # Calendar and weather helper functions
 ├── preview.png     # README preview image
+├── LICENSE         # MIT license
 └── README.md       # Documentation
 ```
 
@@ -253,17 +254,17 @@ This plugin:
 
 ```bash
 omarchy-shell shell rescanPlugins
-omarchy plugin enable asked.dashboard
+omarchy plugin enable cucu0628.dashboard
 omarchy restart shell
 ```
 
 Ensure that both the directory name and the manifest ID are
-`asked.dashboard`.
+`cucu0628.dashboard`.
 
 ### The Panel Does Not Open
 
 ```bash
-omarchy-shell asked.dashboard open
+omarchy-shell cucu0628.dashboard open
 quickshell log --pid "$(pgrep -n quickshell)" --tail 100 --no-color
 ```
 
@@ -297,7 +298,7 @@ dashboard controls the same default PipeWire sink.
 
 ## Development
 
-Changes under `~/.config/omarchy/plugins/asked.dashboard/` are normally
+Changes under `~/.config/omarchy/plugins/cucu0628.dashboard/` are normally
 detected automatically by Omarchy Shell. To rescan manually:
 
 ```bash
@@ -328,7 +329,7 @@ quickshell log --pid "$(pgrep -n quickshell)" --tail 150 --no-color
 To update a Git-managed installation:
 
 ```bash
-omarchy plugin update asked.dashboard --yes
+omarchy plugin update cucu0628.dashboard --yes
 ```
 
 If necessary, restart the Shell afterward:
@@ -342,7 +343,7 @@ omarchy restart shell
 For an Omarchy-managed installation:
 
 ```bash
-omarchy plugin remove asked.dashboard
+omarchy plugin remove cucu0628.dashboard
 ```
 
 If the dashboard replaced the stock clock, restore the `omarchy.clock` entry
@@ -354,5 +355,5 @@ and set:
 
 ## License
 
-This repository does not currently include a license file. Add a `LICENSE`
-file before redistributing the project, and update this section accordingly.
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for the
+full license text.

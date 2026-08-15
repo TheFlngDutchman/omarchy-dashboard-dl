@@ -9,8 +9,8 @@ import "Model.js" as Model
 
 Panel {
   id: root
-  moduleName: "asked.dashboard"
-  ipcTarget: "asked.dashboard"
+  moduleName: "cucu0628.dashboard"
+  ipcTarget: "cucu0628.dashboard"
   manageIpc: false
 
   property var anchorItem: null

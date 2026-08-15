@@ -1,9 +1,10 @@
 {
   "schemaVersion": 1,
-  "id": "asked.dashboard",
+  "id": "cucu0628.dashboard",
   "name": "Dashboard",
-  "version": "1.0.0",
-  "author": "asked",
+  "version": "1.1.0",
+  "author": "cucu0628",
+  "license": "MIT",
   "description": "Clock with calendar, media, system and weather dashboard",
   "kinds": [
     "bar-widget"
