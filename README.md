@@ -4,7 +4,7 @@ An Omarchy Shell bar widget that extends the centered clock with a three-view
 dashboard. The bar displays the day and time; clicking it opens the Overview,
 Media, and Weather views.
 
-![Asked Dashboard preview](preview.png?v=2)
+![Asked Dashboard preview](https://raw.githubusercontent.com/cucu0628/omarchy-dashboard/12078f1/preview.png)
 
 ## Features
 
@@ -214,7 +214,7 @@ cucu0628.dashboard/
 ├── BarWidget.qml   # Top-bar clock, click handling, and IPC entry point
 ├── Panel.qml       # Dashboard UI, services, and data collection
 ├── Model.js        # Calendar and weather helper functions
-├── preview.png     # README preview image
+├── preview.png     # Marketplace and README preview image
 ├── LICENSE         # MIT license
 └── README.md       # Documentation
 ```
