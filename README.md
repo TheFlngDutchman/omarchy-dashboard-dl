@@ -1,106 +1,104 @@
 # Asked Dashboard
 
-Omarchy Shell bar-widget, amely a középső órát egy háromnézetes dashboarddal
-egészíti ki. A topbaron a nap és az idő látható, kattintásra pedig megnyílik az
-Overview, Media és Weather nézet.
+An Omarchy Shell bar widget that extends the centered clock with a three-view
+dashboard. The bar displays the day and time; clicking it opens the Overview,
+Media, and Weather views.
 
 ![Asked Dashboard preview](preview.png)
 
-## Funkciók
+## Features
 
-### Topbar
+### Top Bar
 
-- Konfigurálható nap- és időformátum.
-- Bal kattintással nyitható és zárható dashboard.
-- Az aktív Omarchy téma színeit, betűtípusát, térközeit és kereteit használja.
-- Egyszerre csak egy példány helyezhető el a baron.
+- Configurable day and time format.
+- Open or close the dashboard with a left click.
+- Uses the active Omarchy theme colors, font, spacing, and borders.
+- Only one widget instance can be placed on the bar.
 
 ### Overview
 
-- Havi naptár hétfői hétkezdéssel.
-- Előző és következő hónap gomb.
-- Mai nap kiemelése.
-- Aktív MPRIS-forrás borítója, címe és előadója.
-- Előző, lejátszás/szünet és következő vezérlők.
-- Folyamatosan frissülő, tekerhető pozíciósáv.
-- CPU-, memória- és rendszerlemez-használat.
+- Monthly calendar with Monday as the first day of the week.
+- Previous and next month controls.
+- Highlight for the current day.
+- Cover art, title, and artist from the active MPRIS source.
+- Previous, play/pause, and next controls.
+- Continuously updated, seekable playback progress bar.
+- CPU, memory, and root disk usage.
 
 ### Media
 
-- Nagy albumborító és részletes médiaadatok.
-- Előző, lejátszás/szünet és következő vezérlők.
-- 500 ms-onként frissülő, tekerhető MPRIS-pozíciósáv.
-- Aktuális és teljes lejátszási idő.
-- PipeWire rendszerhangerő-szabályzó.
-- Több MPRIS-lejátszó esetén stabil source-választó.
-- A `playerctld` proxy kiszűrése a duplikált source-ok elkerüléséhez.
+- Large cover art and detailed media metadata.
+- Previous, play/pause, and next controls.
+- MPRIS playback position updated every 500 ms.
+- Current and total playback time.
+- Seekable playback progress bar.
+- PipeWire system volume control.
+- Source selector when multiple MPRIS players are available.
+- Filters the `playerctld` proxy to avoid duplicate sources.
 
 ### Weather
 
-- Aktuális hőmérséklet és időjárásikon.
-- Hőérzet, szélsebesség és páratartalom.
-- Ötnapos előrejelzés minimum- és maximum-hőmérséklettel.
-- Az Omarchy meglévő időjárás-helybeállítását használja.
-- Az adatokat az Open-Meteo API szolgáltatja.
+- Current temperature and weather icon.
+- Apparent temperature, wind speed, and humidity.
+- Five-day forecast with minimum and maximum temperatures.
+- Uses the existing Omarchy weather location setting.
+- Fetches data from the Open-Meteo API.
 
-## Követelmények
+## Requirements
 
-- Omarchy 4 vagy újabb, az új Omarchy Shell plugin API-val.
-- Quickshell MPRIS- és PipeWire-szolgáltatásokkal.
-- Működő PipeWire hangrendszer a hangerőszabályzóhoz.
-- `bash`, `curl`, `awk`, `df` és a Linux `/proc` fájlrendszer.
-- Internetkapcsolat az időjárási adatokhoz.
-- Nerd Font kompatibilis Omarchy font az ikonokhoz.
+- Omarchy 4 or newer with the current Omarchy Shell plugin API.
+- Quickshell with MPRIS and PipeWire services.
+- A working PipeWire audio setup for volume control.
+- `bash`, `curl`, `awk`, `df`, and the Linux `/proc` filesystem.
+- An internet connection for weather data.
+- An Omarchy Nerd Font-compatible font for icons.
 
-A plugin jelenleg Linux- és Omarchy-specifikus. Más Quickshell
-konfigurációkban módosítás nélkül nem használható, mert a `qs.Commons` és
-`qs.Ui` Omarchy komponenseire épül.
+This plugin is Linux- and Omarchy-specific. It cannot be used unchanged in an
+unrelated Quickshell configuration because it depends on Omarchy's `qs.Commons`
+and `qs.Ui` components.
 
-## Telepítés
+## Installation
 
-### Git repositoryból
-
-Ha a plugin külön Git repositoryban érhető el:
+### From a Git Repository
 
 ```bash
-omarchy plugin add <repository-url> --enable --yes
+omarchy plugin add https://github.com/cucu0628/omarchy-dashboard.git --enable --yes
 ```
 
-Az Omarchy a repositoryt az alábbi helyre klónozza:
+Omarchy clones the repository into:
 
 ```text
 ~/.config/omarchy/plugins/asked.dashboard/
 ```
 
-### Kézi telepítés
+### Manual Installation
 
-Helyezd a teljes plugin könyvtárat ide:
+Place the complete plugin directory at:
 
 ```text
 ~/.config/omarchy/plugins/asked.dashboard/
 ```
 
-Ezután olvastasd újra és engedélyezd:
+Then rescan and enable it:
 
 ```bash
 omarchy-shell shell rescanPlugins
 omarchy plugin enable asked.dashboard
 ```
 
-A plugin ellenőrzése:
+Verify the installation with:
 
 ```bash
 omarchy-shell shell listPlugins
 ```
 
-A listában az `asked.dashboard` bejegyzésnél az `enabled` értéknek `true`-nak
-kell lennie.
+The `asked.dashboard` entry should have `enabled` set to `true`.
 
-## Topbar beállítása
+## Top Bar Configuration
 
-A plugin alapértelmezett szekciója a `center`. Ha a gyári órát szeretnéd
-lecserélni, a `~/.config/omarchy/shell.json` középső elrendezésében az
-`omarchy.clock` bejegyzést cseréld erre:
+The default section is `center`. To replace the stock clock, replace the
+`omarchy.clock` entry in the center layout of
+`~/.config/omarchy/shell.json` with:
 
 ```json
 {
@@ -109,49 +107,51 @@ lecserélni, a `~/.config/omarchy/shell.json` középső elrendezésében az
 }
 ```
 
-Az igazítás miatt a `centerAnchor` értéke is legyen:
+Set `centerAnchor` to the dashboard as well:
 
 ```json
 "centerAnchor": "asked.dashboard"
 ```
 
-Ne írd felül a teljes `shell.json` fájlt egy rövid példakonfigurációval. A fájl
-a bar többi widgetjét, az idle időzítéseket és más pluginokat is tartalmazhat.
+Do not replace your entire `shell.json` with a short example. That file may
+also contain the rest of your bar layout, idle timers, and other plugins.
 
-A Shell normál esetben automatikusan újratölti a változásokat. Ha ez nem
-történik meg:
+The Shell normally reloads configuration changes automatically. If it does
+not, run:
 
 ```bash
 omarchy restart shell
 ```
 
-## Óraformátum
+## Clock Format
 
-A `format` mező Qt dátum- és időformátumot fogad. Példák:
+The `format` setting accepts a Qt date and time format.
 
-| Beállítás | Példa |
+| Setting | Example |
 |---|---|
 | `dddd HH:mm` | `Saturday 12:30` |
 | `ddd HH:mm` | `Sat 12:30` |
 | `HH:mm` | `12:30` |
 | `yyyy-MM-dd HH:mm` | `2026-08-15 12:30` |
 
-## Használat
+## Usage
 
-- Kattints a topbar órájára a dashboard nyitásához vagy bezárásához.
-- Az `OVERVIEW`, `MEDIA` és `WEATHER` fülekkel válts nézetet.
-- A naptár nyilaival válts hónapot.
-- A média pozíciósávján kattintással vagy húzással tekerhetsz.
-- A hangerősáv a PipeWire alapértelmezett kimenetének hangerejét állítja.
-- Több source esetén a Media nézet tetején megjelennek a source-gombok.
-- `Escape` bezárja a panelt.
+- Click the clock on the top bar to open or close the dashboard.
+- Use the `OVERVIEW`, `MEDIA`, and `WEATHER` tabs to switch views.
+- Use the calendar arrows to change the displayed month.
+- Click or drag a playback progress bar to seek.
+- The volume bar controls the default PipeWire output volume.
+- When multiple players are active, source buttons appear at the top of the
+  Media view.
+- Press `Escape` to close the panel.
 
-A pozíciósáv csak akkor aktív, ha az adott MPRIS-lejátszó támogatja a seeket,
-és közli a média teljes hosszát. Egyes élő közvetítések ezt nem támogatják.
+The playback progress bar is enabled only when the selected MPRIS player
+supports seeking and reports the total media length. Some live streams do not
+provide these capabilities.
 
 ## IPC
 
-A dashboard közvetlenül is vezérelhető:
+The dashboard can also be controlled directly:
 
 ```bash
 omarchy-shell asked.dashboard open
@@ -159,96 +159,97 @@ omarchy-shell asked.dashboard close
 omarchy-shell asked.dashboard toggle
 ```
 
-Ez használható Hyprland billentyűkombinációból vagy saját scriptből is.
+These commands can be used from scripts or Hyprland keybindings.
 
-## Időjárási hely
+## Weather Location
 
-A plugin ezt a meglévő Omarchy állapotfájlt olvassa:
+The plugin reads the existing Omarchy weather state file:
 
 ```text
 ~/.local/state/omarchy/settings/weather.json
 ```
 
-Elvárt formátum:
+Expected format:
 
 ```json
 {
-  "name": "Veszprém",
+  "name": "Veszprem",
   "latitude": 47.09327,
   "longitude": 17.91149
 }
 ```
 
-A helyet az Omarchy időjárás-beállítójával érdemes módosítani, nem kézzel:
+Use the Omarchy weather location tool instead of editing the file manually:
 
 ```bash
 omarchy-weather-location --set "Budapest"
 ```
 
-Az időjárás 15 percenként frissül. A plugin az alábbi Open-Meteo végpontot
-használja:
+Weather data refreshes every 15 minutes. The plugin uses this Open-Meteo
+endpoint:
 
 ```text
 https://api.open-meteo.com/v1/forecast
 ```
 
-## Adatforrások
+## Data Sources
 
-| Adat | Forrás |
+| Data | Source |
 |---|---|
-| Dátum és idő | Quickshell `SystemClock` |
-| Média | `Quickshell.Services.Mpris` |
-| Hangerő | `Quickshell.Services.Pipewire` |
+| Date and time | Quickshell `SystemClock` |
+| Media | `Quickshell.Services.Mpris` |
+| Volume | `Quickshell.Services.Pipewire` |
 | CPU | `/proc/stat` |
-| Memória | `/proc/meminfo` |
-| Lemez | `df -P /` |
-| Időjárás | Open-Meteo HTTPS API |
+| Memory | `/proc/meminfo` |
+| Disk | `df -P /` |
+| Weather | Open-Meteo HTTPS API |
 
-A rendszerstatisztika három másodpercenként frissül, amíg a panel nyitva van.
+System statistics refresh every three seconds while the panel is open.
 
-## Fájlstruktúra
+## File Structure
 
 ```text
 asked.dashboard/
-├── manifest.json   # Omarchy plugin metaadatok és widgetbeállítások
-├── BarWidget.qml   # Topbar óra, kattintás és IPC belépési pont
-├── Panel.qml       # Dashboard felület, szolgáltatások és adatlekérések
-├── Model.js        # Naptár- és időjárás-segédfüggvények
-└── README.md       # Dokumentáció
+├── manifest.json   # Omarchy plugin metadata and widget settings
+├── BarWidget.qml   # Top-bar clock, click handling, and IPC entry point
+├── Panel.qml       # Dashboard UI, services, and data collection
+├── Model.js        # Calendar and weather helper functions
+├── preview.png     # README preview image
+└── README.md       # Documentation
 ```
 
-## Témázás
+## Theming
 
-A plugin nem tartalmaz rögzített saját színpalettát. Az Omarchy alábbi közös
-értékeit használja:
+The plugin does not define a fixed color palette. It uses the following shared
+Omarchy values:
 
-- `Color.background`, `Color.foreground`, `Color.accent`
+- `Color.background`, `Color.foreground`, and `Color.accent`
 - `Color.popups`
 - `Style.font`
 - `Style.spacing`
 - `Style.cornerRadius`
 - `Border.controlSpec`
 
-Emiatt az Omarchy téma-, font- és skálaváltásai automatikusan megjelennek a
-dashboardon.
+As a result, Omarchy theme, font, and scaling changes are reflected in the
+dashboard automatically.
 
-## Jogosultságok és adatvédelem
+## Permissions and Privacy
 
-Az Omarchy Shell pluginek nincsenek sandboxolva; a plugin QML-kódja az
-`omarchy-shell` folyamatban fut. Telepítés előtt mindig nézd át a forrást.
+Omarchy Shell plugins are not sandboxed. Their QML code runs inside the
+`omarchy-shell` process. Always review a plugin before installing it.
 
-A plugin:
+This plugin:
 
-- helyi rendszerstatisztikát olvas;
-- a felhasználó MPRIS-lejátszóit vezérli;
-- a PipeWire kimeneti hangerőt módosítja;
-- az időjárási koordinátákat elküldi az Open-Meteo API-nak;
-- nem használ `sudo`-t;
-- nem ír saját adatbázist vagy előzményfájlt.
+- reads local system statistics;
+- controls MPRIS players owned by the current user;
+- changes the PipeWire output volume;
+- sends the configured weather coordinates to Open-Meteo;
+- does not use `sudo`;
+- does not maintain its own database or history file.
 
-## Hibakeresés
+## Troubleshooting
 
-### A plugin nem jelenik meg
+### The Plugin Does Not Appear
 
 ```bash
 omarchy-shell shell rescanPlugins
@@ -256,101 +257,102 @@ omarchy plugin enable asked.dashboard
 omarchy restart shell
 ```
 
-Ellenőrizd, hogy a könyvtár neve és a manifest azonosítója egyaránt
+Ensure that both the directory name and the manifest ID are
 `asked.dashboard`.
 
-### A panel nem nyílik meg
+### The Panel Does Not Open
 
 ```bash
 omarchy-shell asked.dashboard open
 quickshell log --pid "$(pgrep -n quickshell)" --tail 100 --no-color
 ```
 
-### Nincs médiainformáció
+### No Media Information Is Shown
 
-Ellenőrizd, hogy a lejátszó exportál-e MPRIS szolgáltatást:
+Check whether the player exports an MPRIS service:
 
 ```bash
 busctl --user list --no-pager
 ```
 
-A listában `org.mpris.MediaPlayer2.*` nevű szolgáltatásnak kell szerepelnie.
+The output should contain a service named `org.mpris.MediaPlayer2.*`.
 
-### Nem lehet tekerni
+### Seeking Is Disabled
 
-Az adott lejátszó vagy tartalom valószínűleg nem támogatja az MPRIS seek
-műveletet. Ez gyakori élő közvetítéseknél és ismeretlen hosszúságú médiánál.
+The selected player or content probably does not support the MPRIS seek
+operation. This is common for live streams and media with an unknown length.
 
-### Nem működik a hangerő
+### Volume Control Does Not Work
 
-Ellenőrizd a PipeWire alapértelmezett kimenetét és az Omarchy saját audio
-paneljét. A dashboard ugyanazt a PipeWire sinket vezérli.
+Check the default PipeWire output and Omarchy's built-in audio panel. The
+dashboard controls the same default PipeWire sink.
 
-### Nincs időjárás
+### Weather Is Missing
 
-- Ellenőrizd a `weather.json` fájlt.
-- Ellenőrizd az internetkapcsolatot.
-- Próbáld újra beállítani a helyet az `omarchy-weather-location` paranccsal.
-- Az előző sikeres adat megmarad, ha egy frissítés átmenetileg sikertelen.
+- Check the `weather.json` state file.
+- Check your internet connection.
+- Configure the location again with `omarchy-weather-location`.
+- Previously loaded weather data remains visible if a refresh fails
+  temporarily.
 
-## Fejlesztés
+## Development
 
-A `~/.config/omarchy/plugins/asked.dashboard/` alatti fájlmódosításokat az
-Omarchy Shell általában automatikusan észleli. Kézi újratöltés:
+Changes under `~/.config/omarchy/plugins/asked.dashboard/` are normally
+detected automatically by Omarchy Shell. To rescan manually:
 
 ```bash
 omarchy-shell shell rescanPlugins
 ```
 
-Teljes, tiszta újraindítás:
+For a clean restart:
 
 ```bash
 omarchy restart shell
 ```
 
-JSON és JavaScript alapellenőrzés:
+Basic JSON and JavaScript validation:
 
 ```bash
 jq empty manifest.json
 node --check Model.js
 ```
 
-Futásidejű QML hibák ellenőrzése:
+Check runtime QML errors with:
 
 ```bash
 quickshell log --pid "$(pgrep -n quickshell)" --tail 150 --no-color
 ```
 
-## Frissítés
+## Updating
 
-Gitből telepített plugin frissítése:
+To update a Git-managed installation:
 
 ```bash
 omarchy plugin update asked.dashboard --yes
 ```
 
-Frissítés után szükség esetén:
+If necessary, restart the Shell afterward:
 
 ```bash
 omarchy restart shell
 ```
 
-## Eltávolítás
+## Removal
 
-Omarchyval telepített plugin esetén:
+For an Omarchy-managed installation:
 
 ```bash
 omarchy plugin remove asked.dashboard
 ```
 
-Ha a plugin a gyári órát helyettesítette, állítsd vissza a bar
-`omarchy.clock` bejegyzését és ezt az anchor értéket:
+If the dashboard replaced the stock clock, restore the `omarchy.clock` entry
+and set:
 
 ```json
 "centerAnchor": "omarchy.clock"
 ```
 
-## Licenc
+## License
 
-A könyvtár jelenleg nem tartalmaz külön licencfájlt. Nyilvános terjesztés előtt
-adj hozzá egy `LICENSE` fájlt, és frissítsd ezt a szakaszt a választott licenccel.
+This repository does not currently include a license file. Add a `LICENSE`
+file before redistributing the project, and update this section accordingly.
