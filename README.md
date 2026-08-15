@@ -4,7 +4,7 @@ An Omarchy Shell bar widget that extends the centered clock with a three-view
 dashboard. The bar displays the day and time; clicking it opens the Overview,
 Media, and Weather views.
 
-![Asked Dashboard preview](preview.png)
+![Asked Dashboard preview](preview.png?v=2)
 
 ## Features
 
