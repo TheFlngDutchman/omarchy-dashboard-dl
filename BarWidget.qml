@@ -6,7 +6,7 @@ import qs.Ui
 
 BarWidget {
   id: root
-  moduleName: "cucu0628.dashboard"
+  moduleName: "io.github.theflngdutchman.dashboard-dl"
 
   property date displayDate: clock.date
   readonly property string displayText: Qt.formatDateTime(displayDate, setting("format", "dddd HH:mm"))
@@ -50,7 +50,7 @@ BarWidget {
   }
 
   IpcHandler {
-    target: "cucu0628.dashboard"
+    target: "io.github.theflngdutchman.dashboard-dl"
     function open(): void { root.open() }
     function close(): void { root.close() }
     function toggle(): void { root.togglePanel() }

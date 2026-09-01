@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "id": "cucu0628.dashboard",
-  "name": "Dashboard",
-  "version": "1.1.1",
-  "author": "cucu0628",
+  "id": "io.github.theflngdutchman.dashboard-dl",
+  "name": "Dashboard DL",
+  "version": "1.0.0",
+  "author": "TheFlngDutchman",
   "license": "MIT",
-  "description": "Clock with calendar, media, system and weather dashboard",
+  "description": "Clock with calendar, media, system and weather dashboard, plus a yt-dlp download button for whatever is playing",
   "kinds": [
     "bar-widget"
   ],
@@ -13,8 +13,8 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "Dashboard",
-    "description": "Clock with a three-view dashboard",
+    "displayName": "Dashboard DL",
+    "description": "Clock with a three-view dashboard and a download button for the current track",
     "category": "Time",
     "allowMultiple": false,
     "defaultSection": "center",

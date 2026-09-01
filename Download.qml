@@ -463,7 +463,7 @@ QtObject {
 
   readonly property string statePath:
     (Quickshell.env("XDG_STATE_HOME") || Quickshell.env("HOME") + "/.local/state")
-    + "/omarchy/settings/cucu0628.dashboard.json"
+    + "/omarchy/settings/io.github.theflngdutchman.dashboard-dl.json"
 
   // Keys this version does not know about are round-tripped rather than dropped.
   property var rawSettings: ({})
@@ -521,10 +521,10 @@ QtObject {
       // No file yet on first run; the declared defaults above are the state and
       // the file appears with the first save.
       if (error !== FileViewError.FileNotFound)
-        console.warn("cucu0628.dashboard: settings load failed:", FileViewError.toString(error))
+        console.warn("io.github.theflngdutchman.dashboard-dl: settings load failed:", FileViewError.toString(error))
     }
     onSaveFailed: function(error) {
-      console.warn("cucu0628.dashboard: settings save failed:", FileViewError.toString(error))
+      console.warn("io.github.theflngdutchman.dashboard-dl: settings save failed:", FileViewError.toString(error))
     }
   }
 

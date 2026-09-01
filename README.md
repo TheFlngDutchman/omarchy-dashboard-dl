@@ -1,14 +1,150 @@
-# Asked Dashboard
+# Dashboard DL
 
 An Omarchy Shell bar widget that extends the centered clock with a three-view
-dashboard. The bar displays the day and time; clicking it opens the Overview,
-Media, and Weather views.
+dashboard, and adds a download button to the Media view: one click fetches
+whatever your active media player is playing, using `yt-dlp`.
 
-![Asked Dashboard preview](https://raw.githubusercontent.com/cucu0628/omarchy-dashboard/12078f1/preview.png)
+> ### Credit
+>
+> **This is a fork of [Dashboard](https://github.com/cucu0628/omarchy-dashboard)
+> by [cucu0628](https://github.com/cucu0628)**, used under the MIT License.
+>
+> The dashboard itself — the bar clock, the calendar, the Overview / Media /
+> Weather views, the MPRIS transport and volume controls, the system readout and
+> the weather integration — is entirely their work, and it is very good. This
+> fork adds one thing: the download button described below.
+>
+> If you want the dashboard without the download feature, **install the original**
+> — it is on the marketplace as `cucu0628.dashboard`:
+>
+> ```bash
+> omarchy plugin add https://github.com/cucu0628/omarchy-dashboard.git --enable --yes
+> ```
+>
+> The upstream commit history is preserved here, so `git log` still attributes
+> every original commit to its author. See [NOTICE.md](NOTICE.md).
+
+![Dashboard DL preview](preview.png)
+
+## The download button
+
+The Media view gains a download button (`󰇚`) beside the transport controls, and
+a gear for its settings. One click fetches the current track to disk.
+
+![Download button in the Media view](screenshots/01-media-download-button.png)
+
+### Working out what is playing
+
+This is the part that is not as simple as it sounds. The plugin tries, in order:
+
+1. **`xesam:url` from the player.** Firefox and mpv publish the real page URL.
+2. **The video id recovered from the artwork URL.** mpv's `mpris:artUrl` is a
+   real `i.ytimg.com/vi/<id>/` address, so the id is recoverable from it.
+3. **A YouTube search on the track tags** — `ytsearch1:"artist - title"`.
+
+Step 3 exists because **Chromium-family browsers publish no `xesam:url` at all.**
+Their MPRIS bridge is fed by the Media Session API, which carries title, artist,
+album and artwork, and no source URL. For Brave, Chromium and Edge the search
+path is the normal case, not an edge case.
+
+A search can resolve to a lookalike, which is why the confirmation step below is
+on by default.
+
+### Confirm before downloading
+
+With **Confirm before downloading** enabled (the default), the plugin runs
+`yt-dlp --simulate` first and shows you exactly what it resolved — title,
+uploader, duration, resolution, size, the final URL and the destination folder —
+before a single byte is written.
+
+![Confirmation card showing the resolved video](screenshots/02-confirm-card.png)
+
+The card also warns you when the match is uncertain or unusual:
+
+- **Found by searching** — no address came from the player, so this is a guess
+  from the track tags. Check it is the right one.
+- **Playlist** — the link points at a playlist; only the first item is fetched.
+- **Live stream** — the download runs until you cancel it.
+
+Turn the setting off and the first click downloads immediately, searched matches
+included.
+
+### Progress
+
+Progress, speed and ETA are read from `yt-dlp`'s own progress output. Percent is
+folded across streams, so a separate video and audio stream still reads as one
+monotonic 0–100%. The button becomes a cancel button while a download runs.
+
+![Download in progress with speed and ETA](screenshots/03-download-progress.png)
+
+When it finishes, the panel shows the path it wrote and clears itself after a few
+seconds. Failures stay put until dismissed and carry `yt-dlp`'s own message.
+
+![Completed download showing the saved path](screenshots/04-saved.png)
+
+### Settings
+
+The gear opens the download settings.
+
+![Download settings](screenshots/05-download-settings.png)
+
+| Setting | Default | Notes |
+|---|---|---|
+| What to download | `Audio + video` | Audio-only extracts best audio at quality 0; audio + video muxes into `mkv` |
+| Audio folder | `~/Music` | Stored unexpanded, so it stays portable |
+| Video folder | `~/Videos` | |
+| Confirm before downloading | On | See above |
+| yt-dlp | auto-detected | Shows the resolved binary and version, with an `Update` button |
+
+`mkv` rather than `mp4` is deliberate: forcing `mp4` pins h264/aac and discards
+the better AV1/VP9 and Opus streams, and fixing the container afterwards would
+mean re-encoding the whole file.
+
+Settings are stored in their own state file:
+
+```text
+~/.local/state/omarchy/settings/io.github.theflngdutchman.dashboard-dl.json
+```
+
+They deliberately do **not** live on the widget's `shell.json` entry, because
+disabling and re-enabling a bar widget rewrites that entry as a bare `{ id }`,
+which would silently reset every preference.
+
+### Which yt-dlp
+
+The plugin resolves `yt-dlp` to an absolute path at load, preferring a
+self-updating standalone build:
+
+1. an explicit path, if you set one
+2. `~/.local/bin/yt-dlp`
+3. `~/.local/bin/yt-dlp_linux`
+4. whatever `yt-dlp` resolves to on `PATH`
+
+`PATH` is not trusted for this. The shell process can run with `/usr/bin` ahead
+of `~/.local/bin`, so a bare name lookup can pick up a distribution package that
+lags upstream by weeks — and **a stale `yt-dlp` is what produces YouTube's
+`HTTP Error 403: Forbidden`.** The settings view shows which binary was resolved
+and its version, so you can check that before blaming anything else.
+
+The `Update` button runs `yt-dlp -U`. It only works on a standalone build;
+package-manager installs refuse to self-update.
+
+### What it will not do
+
+- **Local files.** Nothing to fetch.
+- **Local network streams.** Private hosts are rejected.
+- **DRM services.** Spotify, Tidal, Deezer and Amazon Music hand over
+  well-formed URLs that `yt-dlp` refuses outright, so these are rerouted to a
+  tag search instead of failing. `yt-dlp` owns the authoritative blocklist; its
+  stderr is surfaced verbatim for anything this plugin does not know about.
+- **Whole playlists.** A playlist link fetches its first item only.
 
 ## Features
 
-### Top Bar
+Everything in this section apart from **Download** comes from
+[the original plugin](https://github.com/cucu0628/omarchy-dashboard).
+
+### Top bar
 
 - Configurable day and time format.
 - Open or close the dashboard with a left click.
@@ -35,6 +171,7 @@ Media, and Weather views.
 - Per-player MPRIS volume control for the selected media source.
 - Source selector when multiple MPRIS players are available.
 - Filters the `playerctld` proxy to avoid duplicate sources.
+- **Download the current track with `yt-dlp`.** ← added by this fork
 
 ### Weather
 
@@ -51,6 +188,17 @@ Media, and Weather views.
 - `bash`, `curl`, `awk`, `df`, and the Linux `/proc` filesystem.
 - An internet connection for weather data.
 - An Omarchy Nerd Font-compatible font for icons.
+- **[`yt-dlp`](https://github.com/yt-dlp/yt-dlp) for the download feature.**
+  Optional — the rest of the dashboard works without it. A self-updating
+  standalone build is strongly preferred:
+
+  ```bash
+  curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux \
+    -o ~/.local/bin/yt-dlp && chmod +x ~/.local/bin/yt-dlp
+  ```
+
+  `ffmpeg` is also needed for audio extraction and for muxing separate video and
+  audio streams.
 
 This plugin is Linux- and Omarchy-specific. It cannot be used unchanged in an
 unrelated Quickshell configuration because it depends on Omarchy's `qs.Commons`
@@ -58,31 +206,31 @@ and `qs.Ui` components.
 
 ## Installation
 
-### From a Git Repository
+### From a Git repository
 
 ```bash
-omarchy plugin add https://github.com/cucu0628/omarchy-dashboard.git --enable --yes
+omarchy plugin add https://github.com/TheFlngDutchman/omarchy-dashboard-dl.git --enable --yes
 ```
 
 Omarchy clones the repository into:
 
 ```text
-~/.config/omarchy/plugins/cucu0628.dashboard/
+~/.config/omarchy/plugins/io.github.theflngdutchman.dashboard-dl/
 ```
 
-### Manual Installation
+### Manual installation
 
 Place the complete plugin directory at:
 
 ```text
-~/.config/omarchy/plugins/cucu0628.dashboard/
+~/.config/omarchy/plugins/io.github.theflngdutchman.dashboard-dl/
 ```
 
 Then rescan and enable it:
 
 ```bash
 omarchy-shell shell rescanPlugins
-omarchy plugin enable cucu0628.dashboard
+omarchy plugin enable io.github.theflngdutchman.dashboard-dl
 ```
 
 Verify the installation with:
@@ -91,17 +239,30 @@ Verify the installation with:
 omarchy-shell shell listPlugins
 ```
 
-The `cucu0628.dashboard` entry should have `enabled` set to `true`.
+The `io.github.theflngdutchman.dashboard-dl` entry should have `enabled` set to
+`true`.
 
-## Top Bar Configuration
+### Migrating from the original Dashboard
+
+The two plugins have different IDs, so they can be installed side by side — but
+only one may sit on the bar, and their settings do not carry over. To switch,
+remove the original first:
+
+```bash
+omarchy plugin remove cucu0628.dashboard
+```
+
+Then replace its `shell.json` entry as described below.
+
+## Top bar configuration
 
 The default section is `center`. To replace the stock clock, replace the
-`omarchy.clock` entry in the center layout of
-`~/.config/omarchy/shell.json` with:
+`omarchy.clock` entry in the center layout of `~/.config/omarchy/shell.json`
+with:
 
 ```json
 {
-  "id": "cucu0628.dashboard",
+  "id": "io.github.theflngdutchman.dashboard-dl",
   "format": "dddd HH:mm"
 }
 ```
@@ -109,20 +270,20 @@ The default section is `center`. To replace the stock clock, replace the
 Set `centerAnchor` to the dashboard as well:
 
 ```json
-"centerAnchor": "cucu0628.dashboard"
+"centerAnchor": "io.github.theflngdutchman.dashboard-dl"
 ```
 
-Do not replace your entire `shell.json` with a short example. That file may
-also contain the rest of your bar layout, idle timers, and other plugins.
+Do not replace your entire `shell.json` with a short example. That file may also
+contain the rest of your bar layout, idle timers, and other plugins.
 
-The Shell normally reloads configuration changes automatically. If it does
-not, run:
+The Shell normally reloads configuration changes automatically. If it does not,
+run:
 
 ```bash
 omarchy restart shell
 ```
 
-## Clock Format
+## Clock format
 
 The `format` setting accepts a Qt date and time format.
 
@@ -141,7 +302,7 @@ The `format` setting accepts a Qt date and time format.
 - Click or drag a playback progress bar to seek.
 - The volume bar controls the selected MPRIS player's own volume.
 - When multiple players are active, source buttons appear at the top of the
-  Media view.
+  Media view. The download button follows the selected source.
 - Press `Escape` to close the panel.
 
 The playback progress bar is enabled only when the selected MPRIS player
@@ -153,14 +314,14 @@ provide these capabilities.
 The dashboard can also be controlled directly:
 
 ```bash
-omarchy-shell cucu0628.dashboard open
-omarchy-shell cucu0628.dashboard close
-omarchy-shell cucu0628.dashboard toggle
+omarchy-shell io.github.theflngdutchman.dashboard-dl open
+omarchy-shell io.github.theflngdutchman.dashboard-dl close
+omarchy-shell io.github.theflngdutchman.dashboard-dl toggle
 ```
 
 These commands can be used from scripts or Hyprland keybindings.
 
-## Weather Location
+## Weather location
 
 The plugin reads the existing Omarchy weather state file:
 
@@ -191,7 +352,7 @@ endpoint:
 https://api.open-meteo.com/v1/forecast
 ```
 
-## Data Sources
+## Data sources
 
 | Data | Source |
 |---|---|
@@ -202,19 +363,23 @@ https://api.open-meteo.com/v1/forecast
 | Memory | `/proc/meminfo` |
 | Disk | `df -P /` |
 | Weather | Open-Meteo HTTPS API |
+| Downloads | `yt-dlp`, run as an external process |
 
 System statistics refresh every three seconds while the panel is open.
 
-## File Structure
+## File structure
 
 ```text
-cucu0628.dashboard/
+io.github.theflngdutchman.dashboard-dl/
 ├── manifest.json   # Omarchy plugin metadata and widget settings
 ├── BarWidget.qml   # Top-bar clock, click handling, and IPC entry point
 ├── Panel.qml       # Dashboard UI, services, and data collection
+├── Download.qml    # yt-dlp engine behind the Media view download button
 ├── Model.js        # Calendar and weather helper functions
 ├── preview.png     # Marketplace and README preview image
+├── screenshots/    # README screenshots
 ├── LICENSE         # MIT license
+├── NOTICE.md       # Upstream attribution and third-party notices
 └── README.md       # Documentation
 ```
 
@@ -233,7 +398,7 @@ Omarchy values:
 As a result, Omarchy theme, font, and scaling changes are reflected in the
 dashboard automatically.
 
-## Permissions and Privacy
+## Permissions and privacy
 
 Omarchy Shell plugins are not sandboxed. Their QML code runs inside the
 `omarchy-shell` process. Always review a plugin before installing it.
@@ -244,30 +409,42 @@ This plugin:
 - controls MPRIS players owned by the current user;
 - changes the selected MPRIS player's own volume;
 - sends the configured weather coordinates to Open-Meteo;
+- **runs `yt-dlp` as an external process when you press the download button, and
+  writes files to the folder you configure;**
+- **sends the resolved URL, or a search query built from the current track's
+  title and artist, to whatever site `yt-dlp` contacts;**
 - does not request elevated privileges;
 - does not maintain its own database or history file.
 
+Downloads only ever start from an explicit button press. Nothing is fetched in
+the background, and no telemetry is collected.
+
+Process arguments are passed in array form and terminated with `--`, so quotes,
+spaces, semicolons and leading dashes in a URL or folder name are inert data
+rather than shell syntax. This matters because the URL comes from metadata that a
+web page controls.
+
 ## Troubleshooting
 
-### The Plugin Does Not Appear
+### The plugin does not appear
 
 ```bash
 omarchy-shell shell rescanPlugins
-omarchy plugin enable cucu0628.dashboard
+omarchy plugin enable io.github.theflngdutchman.dashboard-dl
 omarchy restart shell
 ```
 
 Ensure that both the directory name and the manifest ID are
-`cucu0628.dashboard`.
+`io.github.theflngdutchman.dashboard-dl`.
 
-### The Panel Does Not Open
+### The panel does not open
 
 ```bash
-omarchy-shell cucu0628.dashboard open
+omarchy-shell io.github.theflngdutchman.dashboard-dl open
 quickshell log --pid "$(pgrep -n quickshell)" --tail 100 --no-color
 ```
 
-### No Media Information Is Shown
+### No media information is shown
 
 Check whether the player exports an MPRIS service:
 
@@ -277,37 +454,62 @@ busctl --user list --no-pager
 
 The output should contain a service named `org.mpris.MediaPlayer2.*`.
 
-### Seeking Is Disabled
+### The download button is disabled
+
+Hover it — the tooltip says why. Common reasons: nothing is playing, the source
+is a local file, or the player exposes no usable track information.
+
+### Downloads fail with `HTTP Error 403: Forbidden`
+
+Almost always a stale `yt-dlp`. Open the download settings and check the version
+and the resolved path. If it is a distribution package, install the standalone
+build under `~/.local/bin` (see [Requirements](#requirements)) and press
+`Update`.
+
+### The download grabbed the wrong video
+
+Your player published no URL, so the plugin searched on the track tags and the
+search returned a lookalike. Keep **Confirm before downloading** on: the
+confirmation card labels searched matches explicitly and shows the resolved
+title and URL before anything is written.
+
+### Seeking is disabled
 
 The selected player or content probably does not support the MPRIS seek
 operation. This is common for live streams and media with an unknown length.
 
-### Volume Control Does Not Work
+### Volume control does not work
 
-Confirm that the selected player exports the MPRIS `volume` property. The
-slider is disabled when the application does not support MPRIS volume control.
+Confirm that the selected player exports the MPRIS `volume` property. The slider
+is disabled when the application does not support MPRIS volume control.
 
-### Weather Is Missing
+### Weather is missing
 
 - Check the `weather.json` state file.
 - Check your internet connection.
 - Configure the location again with `omarchy-weather-location`.
-- Previously loaded weather data remains visible if a refresh fails
-  temporarily.
+- Previously loaded weather data remains visible if a refresh fails temporarily.
 
 ## Development
 
-Changes under `~/.config/omarchy/plugins/cucu0628.dashboard/` are normally
-detected automatically by Omarchy Shell. To rescan manually:
+Editing a file under
+`~/.config/omarchy/plugins/io.github.theflngdutchman.dashboard-dl/` fires the
+plugin reload watch, but **that only re-instantiates the manifest's
+`entryPoints.barWidget` file** — `BarWidget.qml`. `Panel.qml` and `Download.qml`
+are pulled in through a `Loader` and are served from the compiled-component
+cache, so they are **not** re-parsed.
 
-```bash
-omarchy-shell shell rescanPlugins
-```
-
-For a clean restart:
+This makes "I saved the file and saw no QML errors" a false negative: the new
+code was never compiled. After editing anything other than `BarWidget.qml`, run:
 
 ```bash
 omarchy restart shell
+```
+
+and confirm a new PID before believing any log- or screenshot-based check:
+
+```bash
+pgrep -af "quickshell -n -p"
 ```
 
 Basic JSON and JavaScript validation:
@@ -315,6 +517,7 @@ Basic JSON and JavaScript validation:
 ```bash
 jq empty manifest.json
 node --check Model.js
+omarchy plugin validate .
 ```
 
 Check runtime QML errors with:
@@ -328,7 +531,7 @@ quickshell log --pid "$(pgrep -n quickshell)" --tail 150 --no-color
 To update a Git-managed installation:
 
 ```bash
-omarchy plugin update cucu0628.dashboard --yes
+omarchy plugin update io.github.theflngdutchman.dashboard-dl --yes
 ```
 
 If necessary, restart the Shell afterward:
@@ -342,17 +545,33 @@ omarchy restart shell
 For an Omarchy-managed installation:
 
 ```bash
-omarchy plugin remove cucu0628.dashboard
+omarchy plugin remove io.github.theflngdutchman.dashboard-dl
 ```
 
-If the dashboard replaced the stock clock, restore the `omarchy.clock` entry
-and set:
+If the dashboard replaced the stock clock, restore the `omarchy.clock` entry and
+set:
 
 ```json
 "centerAnchor": "omarchy.clock"
 ```
 
+Downloaded files are left alone. The settings file is not removed automatically:
+
+```bash
+rm ~/.local/state/omarchy/settings/io.github.theflngdutchman.dashboard-dl.json
+```
+
+## Credits
+
+- **[cucu0628](https://github.com/cucu0628)** — the original
+  [Dashboard](https://github.com/cucu0628/omarchy-dashboard) plugin, which is
+  the whole of this one apart from the download button.
+- **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** — the download engine.
+- **[Open-Meteo](https://open-meteo.com/)** — weather data.
+- Screenshots show *Cosmos Laundromat - First Cycle*, a Blender Foundation open
+  movie under [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/).
+
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for the
-full license text.
+MIT, as inherited from the original plugin. See [LICENSE](LICENSE) for the full
+text and [NOTICE.md](NOTICE.md) for attribution.
