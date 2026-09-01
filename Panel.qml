@@ -28,6 +28,7 @@ Panel {
   property string weatherLocation: ""
   property real sampledPosition: 0
   property string selectedPlayerKey: ""
+  property bool settingsOpen: false
 
   readonly property var barIdentity: hostWidget || root
   readonly property color foreground: bar ? bar.foreground : Color.foreground
@@ -72,9 +73,28 @@ Panel {
     today = new Date()
     viewYear = today.getFullYear()
     viewMonth = today.getMonth()
+    settingsOpen = false
+    if (downloads.phase === "done" || downloads.phase === "error") downloads.reset()
     refreshSystem()
     weatherFile.reload()
     controller.show()
+  }
+
+  onCurrentViewChanged: if (currentView !== 1) settingsOpen = false
+
+  // A blank field, or one matching what is already stored, means "no change".
+  // TextField emits editingFinished on focus loss and on teardown as well as
+  // after a real edit, so without this a panel being destroyed can commit an
+  // empty value and overwrite the saved folder.
+  function commitTargetDir(value) {
+    var next = String(value || "").trim()
+    if (next === "" || next === downloads.targetDir) {
+      dirField.text = downloads.targetDir
+      return
+    }
+    if (downloads.audioOnly) downloads.audioDir = next
+    else downloads.videoDir = next
+    downloads.saveSettings()
   }
 
   function close() { controller.hide() }
@@ -229,6 +249,19 @@ Panel {
     }
   }
 
+  Download {
+    id: downloads
+    player: root.player
+  }
+
+  Timer {
+    // Clear a finished download so the media view returns to normal on its own.
+    // Failures stay put until dismissed — they carry yt-dlp's message.
+    interval: 6000
+    running: downloads.phase === "done"
+    onTriggered: downloads.reset()
+  }
+
   FileView {
     id: weatherFile
     path: Quickshell.env("HOME") + "/.local/state/omarchy/settings/weather.json"
@@ -322,7 +355,15 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      onCloseRequested: root.close()
+      // Let the directory field have every key, including the h/j/k/l this
+      // catcher otherwise eats as navigation.
+      blocked: dirField.activeFocus
+      onCloseRequested: {
+        if (root.settingsOpen) root.settingsOpen = false
+        else if (downloads.phase === "confirm") downloads.dismiss()
+        else root.close()
+      }
+      onReturnRequested: if (downloads.phase === "confirm") downloads.confirm()
       onTabRequested: function(direction) { root.switchPanel(direction) }
 
       Column {
@@ -582,12 +623,20 @@ Panel {
           }
 
           Item {
+            id: mediaView
             visible: root.currentView === 1
             anchors.fill: parent
+
+            // Settings and confirmation take over the whole view rather than
+            // pushing the player down: the panel's height is fixed, and the
+            // media column already uses nearly all of it.
+            readonly property bool overlayOpen: root.settingsOpen || downloads.phase === "confirm"
+
             Column {
               width: Math.min(parent.width, Style.space(560))
               anchors.centerIn: parent
               spacing: Style.space(10)
+              visible: !mediaView.overlayOpen
               Column {
                 visible: root.sourcePlayers.length > 1
                 width: Math.min(parent.width, Style.space(430))
@@ -667,6 +716,103 @@ Panel {
                 PanelActionButton { size: Style.space(38); fontSize: Style.font.icon; iconText: "󰒮"; foreground: root.foreground; fontFamily: root.fontFamily; enabled: root.player && root.player.canGoPrevious; onClicked: root.mediaAction("previous") }
                 PanelActionButton { size: Style.space(38); fontSize: Style.font.display; iconText: root.player && root.player.isPlaying ? "󰏤" : "󰐊"; foreground: root.foreground; fontFamily: root.fontFamily; enabled: !!root.player; onClicked: root.mediaAction("playPause") }
                 PanelActionButton { size: Style.space(38); fontSize: Style.font.icon; iconText: "󰒭"; foreground: root.foreground; fontFamily: root.fontFamily; enabled: root.player && root.player.canGoNext; onClicked: root.mediaAction("next") }
+
+                // Visual break between "control the player" and "act on the track".
+                Item { width: Style.space(8); height: Style.space(1) }
+
+                PanelActionButton {
+                  size: Style.space(38)
+                  fontSize: Style.font.icon
+                  iconText: downloads.phase === "downloading" ? "󰜺" : "󰇚"
+                  foreground: root.foreground
+                  hoverColor: downloads.phase === "downloading" ? Color.urgent : root.foreground
+                  fontFamily: root.fontFamily
+                  // Stays clickable when the track cannot be resolved so the
+                  // click can report why — a dead button explains nothing.
+                  enabled: downloads.phase !== "probing"
+                  opacity: downloads.target.ok || downloads.phase === "downloading" ? 1 : 0.45
+                  tooltipText: downloads.phase === "downloading"
+                    ? "Cancel download"
+                    : downloads.target.ok
+                      ? (downloads.audioOnly ? "Download audio" : "Download video")
+                        + (downloads.target.kind === "search" ? " — matched by search" : "")
+                      : downloads.target.reason
+                  onClicked: downloads.phase === "downloading" ? downloads.cancelDownload() : downloads.start()
+                }
+                PanelActionButton {
+                  size: Style.space(38)
+                  fontSize: Style.font.icon
+                  iconText: "󰒓"
+                  tooltipText: "Download settings"
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  onClicked: root.settingsOpen = true
+                }
+              }
+
+              // Only present while something is happening, so the resting
+              // layout is unchanged.
+              Column {
+                width: parent.width
+                spacing: Style.space(3)
+                visible: downloads.phase !== "idle" && downloads.phase !== "confirm"
+
+                Row {
+                  width: parent.width
+                  spacing: Style.space(8)
+                  MutedText {
+                    text: downloads.phase === "probing" ? "CHECKING"
+                      : downloads.phase === "downloading" ? (downloads.audioOnly ? "DOWNLOADING AUDIO" : "DOWNLOADING VIDEO")
+                      : downloads.phase === "done" ? "SAVED"
+                      : "FAILED"
+                    color: downloads.phase === "error" ? Color.urgent : Qt.darker(root.foreground, 1.5)
+                    font.pixelSize: Style.font.caption
+                    font.letterSpacing: 1
+                  }
+                  MutedText {
+                    width: parent.width - Style.space(150)
+                    horizontalAlignment: Text.AlignRight
+                    elide: Text.ElideMiddle
+                    font.pixelSize: Style.font.caption
+                    text: {
+                      if (downloads.phase === "downloading") {
+                        var parts = [Math.round(downloads.percent) + "%"]
+                        if (downloads.speed > 0) parts.push(downloads.formatBytes(downloads.speed) + "/s")
+                        var eta = downloads.formatEta(downloads.eta)
+                        if (eta !== "") parts.push("ETA " + eta)
+                        return parts.join("   ")
+                      }
+                      if (downloads.phase === "done") return downloads.filePath
+                      if (downloads.phase === "error") return downloads.errorText
+                      return downloads.pendingLabel
+                    }
+                  }
+                  PanelActionButton {
+                    size: Style.space(16)
+                    fontSize: Style.font.caption
+                    iconText: "󰅖"
+                    tooltipText: "Dismiss"
+                    visible: downloads.phase === "done" || downloads.phase === "error"
+                    foreground: root.foreground
+                    fontFamily: root.fontFamily
+                    onClicked: downloads.dismiss()
+                  }
+                }
+
+                Rectangle {
+                  width: parent.width
+                  height: Style.space(4)
+                  visible: downloads.phase === "downloading"
+                  radius: Style.cornerRadius > 0 ? height / 2 : 0
+                  color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
+                  Rectangle {
+                    width: parent.width * Math.max(0, Math.min(1, downloads.percent / 100))
+                    height: parent.height
+                    radius: parent.radius
+                    color: Style.selectedStateColor(root.foreground, Color.accent)
+                    Behavior on width { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
+                  }
+                }
               }
 
               Column {
@@ -723,6 +869,271 @@ Panel {
                   enabled: !!root.player && root.player.volumeSupported
                   opacity: enabled ? 1 : 0.35
                   onMoved: function(value) { root.setAppVolume(value) }
+                }
+              }
+            }
+
+            Column {
+              visible: root.settingsOpen
+              width: Math.min(parent.width, Style.space(470))
+              anchors.centerIn: parent
+              spacing: Style.space(12)
+
+              Row {
+                width: parent.width
+                spacing: Style.space(6)
+                PanelActionButton {
+                  size: Style.space(26)
+                  anchors.verticalCenter: parent.verticalCenter
+                  iconText: "󰅁"
+                  tooltipText: "Back to player"
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  onClicked: root.settingsOpen = false
+                }
+                LabelText {
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: "DOWNLOAD SETTINGS"
+                  font.pixelSize: Style.font.bodySmall
+                  font.bold: true
+                  font.letterSpacing: 1
+                }
+              }
+
+              PanelSeparator { foreground: root.foreground }
+
+              Column {
+                width: parent.width
+                spacing: Style.space(6)
+                PanelSectionHeader { text: "WHAT TO DOWNLOAD"; foreground: root.foreground; fontFamily: root.fontFamily }
+                ButtonGroup {
+                  width: parent.width
+                  options: [{ value: "audio", label: "Audio only" }, { value: "video", label: "Audio + video" }]
+                  value: downloads.audioOnly ? "audio" : "video"
+                  foreground: root.foreground
+                  accent: Color.accent
+                  fontFamily: root.fontFamily
+                  onChanged: function(mode) {
+                    downloads.audioOnly = mode === "audio"
+                    downloads.saveSettings()
+                    // The folder field follows targetDir on its own.
+                  }
+                }
+              }
+
+              Column {
+                width: parent.width
+                spacing: Style.space(6)
+                PanelSectionHeader {
+                  text: downloads.audioOnly ? "AUDIO FOLDER" : "VIDEO FOLDER"
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                }
+                TextField {
+                  id: dirField
+                  width: parent.width
+                  placeholderText: downloads.audioOnly ? "~/Music" : "~/Videos"
+                  foreground: root.foreground
+                  accent: Color.accent
+                  font.family: root.fontFamily
+                  // Each mode keeps its own folder. targetDir flips with the mode
+                  // and also changes when the settings file loads or another
+                  // monitor's panel edits it, so the field follows it whenever the
+                  // user is not mid-edit. Binding `text` directly would not work:
+                  // typing into a TextField breaks a declarative binding.
+                  readonly property string storedDir: downloads.targetDir
+                  onStoredDirChanged: if (!activeFocus) text = storedDir
+                  onVisibleChanged: if (visible && !activeFocus) text = downloads.targetDir
+                  Component.onCompleted: text = downloads.targetDir
+                  onEditingFinished: root.commitTargetDir(text)
+                  Keys.onEscapePressed: {
+                    text = downloads.targetDir
+                    focus = false
+                  }
+                }
+                MutedText {
+                  width: parent.width
+                  text: "Saves to " + downloads.resolvedTargetDir
+                  font.pixelSize: Style.font.caption
+                  elide: Text.ElideMiddle
+                }
+              }
+
+              Toggle {
+                width: parent.width
+                label: "Confirm before downloading"
+                description: "Show what yt-dlp resolved and wait for approval. Off means downloads start on the first click, including matches found by search."
+                checked: downloads.confirmFirst
+                foreground: root.foreground
+                accent: Color.accent
+                fontFamily: root.fontFamily
+                onClicked: {
+                  downloads.confirmFirst = !downloads.confirmFirst
+                  downloads.saveSettings()
+                }
+              }
+
+              PanelSeparator { foreground: root.foreground }
+
+              Column {
+                width: parent.width
+                spacing: Style.space(5)
+                PanelSectionHeader { text: "YT-DLP"; foreground: root.foreground; fontFamily: root.fontFamily }
+                Row {
+                  width: parent.width
+                  spacing: Style.space(8)
+                  Column {
+                    width: parent.width - Style.space(96)
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: Style.space(1)
+                    LabelText {
+                      width: parent.width
+                      text: downloads.ytdlpVersion !== "" ? downloads.ytdlpVersion : "checking…"
+                      font.pixelSize: Style.font.bodySmall
+                      font.bold: true
+                    }
+                    MutedText {
+                      width: parent.width
+                      text: downloads.ytdlpBinary
+                      font.pixelSize: Style.font.caption
+                      elide: Text.ElideMiddle
+                    }
+                  }
+                  Button {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: downloads.updating ? "…" : "Update"
+                    bordered: true
+                    foreground: root.foreground
+                    accent: Color.accent
+                    fontFamily: root.fontFamily
+                    // A packaged build refuses to self-update; the result line
+                    // below reports that rather than the button hiding it.
+                    enabled: !downloads.updating && !downloads.busy
+                    opacity: enabled ? 1 : 0.45
+                    onClicked: downloads.updateBinary()
+                  }
+                }
+                MutedText {
+                  width: parent.width
+                  visible: downloads.updateResult !== ""
+                  text: downloads.updateResult
+                  wrapMode: Text.WordWrap
+                  font.pixelSize: Style.font.caption
+                }
+              }
+            }
+
+            Column {
+              visible: downloads.phase === "confirm"
+              width: Math.min(parent.width, Style.space(490))
+              anchors.centerIn: parent
+              spacing: Style.space(10)
+
+              MutedText {
+                width: parent.width
+                text: downloads.audioOnly ? "DOWNLOAD AUDIO?" : "DOWNLOAD AUDIO + VIDEO?"
+                horizontalAlignment: Text.AlignHCenter
+                font.pixelSize: Style.font.caption
+                font.letterSpacing: 1
+              }
+
+              Card {
+                width: parent.width
+                height: confirmDetails.implicitHeight + Style.space(28)
+                Column {
+                  id: confirmDetails
+                  anchors.left: parent.left
+                  anchors.right: parent.right
+                  anchors.verticalCenter: parent.verticalCenter
+                  anchors.leftMargin: parent.contentLeftInset
+                  anchors.rightMargin: parent.contentRightInset
+                  spacing: Style.space(4)
+
+                  LabelText {
+                    width: parent.width
+                    text: downloads.probeTitle !== "" ? downloads.probeTitle : downloads.pendingLabel
+                    font.bold: true
+                    wrapMode: Text.WordWrap
+                    maximumLineCount: 2
+                    elide: Text.ElideRight
+                  }
+                  MutedText {
+                    width: parent.width
+                    visible: text !== ""
+                    text: downloads.probeUploader
+                    font.pixelSize: Style.font.bodySmall
+                    elide: Text.ElideRight
+                  }
+                  MutedText {
+                    width: parent.width
+                    visible: text !== ""
+                    font.pixelSize: Style.font.caption
+                    text: [downloads.probeDuration,
+                           downloads.audioOnly ? "" : downloads.probeResolution,
+                           downloads.probeSize].filter(function(part) { return String(part) !== "" }).join("   ·   ")
+                  }
+                  MutedText {
+                    width: parent.width
+                    visible: text !== ""
+                    text: downloads.probeUrl !== "" ? downloads.probeUrl : downloads.pendingUrl
+                    font.pixelSize: Style.font.caption
+                    elide: Text.ElideMiddle
+                  }
+                }
+              }
+
+              MutedText {
+                width: parent.width
+                visible: downloads.pendingKind === "search"
+                color: Color.urgent
+                wrapMode: Text.WordWrap
+                font.pixelSize: Style.font.caption
+                // Brave and every other Chromium browser publish no URL over
+                // MPRIS, so this is the best guess from the track tags.
+                text: "No address from the player — found by searching “" + downloads.pendingLabel + "”. Check it is the right one."
+              }
+              MutedText {
+                width: parent.width
+                visible: downloads.playlistCount > 1
+                wrapMode: Text.WordWrap
+                font.pixelSize: Style.font.caption
+                text: "This is item 1 of a " + downloads.playlistCount + "-item playlist. Only this one will be fetched."
+              }
+              MutedText {
+                width: parent.width
+                visible: downloads.probeIsLive
+                color: Color.urgent
+                wrapMode: Text.WordWrap
+                font.pixelSize: Style.font.caption
+                text: "Live stream — the download keeps running until you cancel it."
+              }
+              MutedText {
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                font.pixelSize: Style.font.caption
+                text: "→ " + downloads.resolvedTargetDir
+                elide: Text.ElideMiddle
+              }
+
+              Row {
+                anchors.horizontalCenter: parent.horizontalCenter
+                spacing: Style.space(10)
+                Button {
+                  iconText: "󰇚"
+                  text: "Download"
+                  bordered: true
+                  foreground: root.foreground
+                  accent: Color.accent
+                  fontFamily: root.fontFamily
+                  onClicked: downloads.confirm()
+                }
+                Button {
+                  text: "Cancel"
+                  bordered: true
+                  foreground: root.foreground
+                  accent: Color.accent
+                  fontFamily: root.fontFamily
+                  onClicked: downloads.dismiss()
                 }
               }
             }
