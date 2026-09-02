@@ -81,12 +81,6 @@ QtObject {
   property string ytdlpPath: ""            // persisted; empty means auto-detect
   property string ytdlpBinary: "yt-dlp"
   property string ytdlpVersion: ""
-  property bool updating: false
-  property string updateResult: ""
-
-  readonly property bool ytdlpSelfUpdating:
-    ytdlpBinary.indexOf(Quickshell.env("HOME") + "/.local/") === 0
-
   onYtdlpPathChanged: engine.resolveBinary()
   Component.onCompleted: engine.resolveBinary()
 
@@ -104,22 +98,14 @@ QtObject {
       script += "if [ -x " + quoted + " ]; then printf '%s' " + quoted + "; exit 0; fi\n"
     }
     script += "command -v yt-dlp 2>/dev/null || printf 'yt-dlp'"
-    resolveProcess.command = ["bash", "-lc", script]
+    resolveProcess.command = engine.withDeadline(engine.shortDeadline, ["bash", "-lc", script])
     resolveProcess.running = true
   }
 
   function readVersion() {
     if (versionProcess.running) return
-    versionProcess.command = [engine.ytdlpBinary, "--version"]
+    versionProcess.command = engine.withDeadline(engine.shortDeadline, [engine.ytdlpBinary, "--version"])
     versionProcess.running = true
-  }
-
-  function updateBinary() {
-    if (engine.updating || engine.busy) return
-    engine.updating = true
-    engine.updateResult = ""
-    updateProcess.command = [engine.ytdlpBinary, "-U"]
-    updateProcess.running = true
   }
 
   // --- resolution -----------------------------------------------------------
@@ -139,8 +125,8 @@ QtObject {
         return { ok: false, reason: "Already a local file" }
       if (!/^https?:\/\//.test(lower))
         return { ok: false, reason: "Source is not a web address" }
-      if (engine.isPrivateHost(lower))
-        return { ok: false, reason: "Local stream — nothing to fetch" }
+      if (!engine.isPublicHttpUrl(url))
+        return { ok: false, reason: "Local or private address — nothing to fetch" }
       // A DRM host hands over a perfectly well-formed URL that yt-dlp refuses
       // outright. For a music service the useful answer is a search on the
       // tags, so fall through rather than fail.
@@ -167,15 +153,154 @@ QtObject {
     return { ok: true, kind: "search", url: "ytsearch1:" + query, label: query }
   }
 
-  // Anything yt-dlp will accept as its final argument: a web address, or one of
-  // its own search shorthands.
+  // Anything yt-dlp will accept as its final argument: a public web address, or
+  // one of its own search shorthands. Applied at the point of download as well
+  // as during resolution, because the URL handed to beginDownload can be
+  // probeUrl — yt-dlp's %(webpage_url)s — which a remote page controls.
   function isFetchable(url) {
     var value = String(url || "")
-    return /^https?:\/\//i.test(value) || value.indexOf("ytsearch") === 0
+    if (value.indexOf("ytsearch") === 0) return true
+    return engine.isPublicHttpUrl(value)
   }
 
-  function isPrivateHost(lower) {
-    return /^https?:\/\/(localhost|127\.|0\.0\.0\.0|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|\[::1\])/.test(lower)
+  // --- address policy -------------------------------------------------------
+  //
+  // The URL here comes from MPRIS metadata that a web page writes, or from
+  // yt-dlp's own report of where it ended up. Handing that to a fetcher without
+  // a check lets a page point this plugin at the loopback interface, the LAN,
+  // the tailnet, or a cloud metadata endpoint.
+  //
+  // Everything below is fail-closed: anything that does not parse cleanly into
+  // a public address is refused. Two residual gaps are worth stating plainly
+  // rather than papering over:
+  //
+  //   - A public hostname that *resolves* to a private address (DNS rebinding)
+  //     is not detectable here. QML cannot resolve names, so the policy is
+  //     applied to the literal host only.
+  //   - yt-dlp follows redirects internally, so a public URL that 302s to a
+  //     private one is not seen by this code.
+  //
+  // Both are bounded by the fact that a download only ever starts from an
+  // explicit button press on a track the user is already playing.
+
+  function isPublicHttpUrl(raw) {
+    var parsed = engine.parseHttpUrl(raw)
+    return parsed !== null && !engine.isBlockedHost(parsed.host)
+  }
+
+  // A deliberately strict parser. Returns null rather than guessing.
+  function parseHttpUrl(raw) {
+    var value = String(raw || "")
+    // Control characters and spaces anywhere are a parser-confusion vector:
+    // different consumers disagree about where the authority ends.
+    if (/[\u0000-\u0020\u007f]/.test(value)) return null
+
+    var m = value.match(/^(https?):\/\/([^\/?#]*)([\/?#][\s\S]*)?$/i)
+    if (!m) return null
+    var authority = m[2]
+    if (authority === "") return null
+
+    // Reject userinfo outright. "http://www.youtube.com@10.0.0.1/" reads as
+    // YouTube to a person and resolves to 10.0.0.1.
+    if (authority.indexOf("@") !== -1) return null
+
+    var host
+    if (authority.charAt(0) === "[") {
+      var close = authority.indexOf("]")
+      if (close === -1) return null
+      host = authority.substring(1, close)
+      var rest = authority.substring(close + 1)
+      if (rest !== "" && !/^:[0-9]{1,5}$/.test(rest)) return null
+      if (host.indexOf(":") === -1) return null      // brackets imply IPv6
+    } else {
+      var parts = authority.split(":")
+      if (parts.length > 2) return null              // bare IPv6 without brackets
+      host = parts[0]
+      if (parts.length === 2 && !/^[0-9]{1,5}$/.test(parts[1])) return null
+    }
+
+    host = host.toLowerCase().replace(/\.+$/, "")     // strip the root dot
+    if (host === "") return null
+    return { scheme: m[1].toLowerCase(), host: host }
+  }
+
+  function isBlockedHost(host) {
+    if (host.indexOf(":") !== -1) return engine.isBlockedIpv6(host)
+
+    var v4 = engine.toIpv4(host)
+    if (v4 !== null) return engine.isBlockedIpv4(v4)
+
+    // A name with no dot resolves through local DNS, mDNS or /etc/hosts, so it
+    // is by definition not a public address: localhost, router, nas.
+    if (host.indexOf(".") === -1) return true
+    if (/(^|\.)localhost$/.test(host)) return true
+    if (/\.(local|localdomain|internal|intranet|lan|home|corp|private|test|invalid|example|onion)$/.test(host)) return true
+    if (/\.home\.arpa$/.test(host)) return true
+    if (/\.in-addr\.arpa$/.test(host) || /\.ip6\.arpa$/.test(host)) return true
+    return false
+  }
+
+  // inet_aton accepts far more than dotted-quad: 2130706433, 0x7f000001 and
+  // 0177.1 are all 127-something. Anything a resolver would accept has to be
+  // normalised here or the range checks below can be walked straight past.
+  function toIpv4(host) {
+    var parts = String(host).split(".")
+    if (parts.length < 1 || parts.length > 4) return null
+
+    var nums = []
+    for (var i = 0; i < parts.length; i++) {
+      var p = parts[i]
+      if (p === "") return null
+      var n
+      if (/^0[xX][0-9a-fA-F]+$/.test(p)) n = parseInt(p.substring(2), 16)
+      else if (/^0[0-7]+$/.test(p)) n = parseInt(p.substring(1), 8)
+      else if (/^[0-9]+$/.test(p)) n = parseInt(p, 10)
+      else return null                               // contains letters: a name
+      if (!isFinite(n) || n < 0) return null
+      nums.push(n)
+    }
+
+    // The final part absorbs every byte the earlier parts did not name.
+    var last = nums[nums.length - 1]
+    if (last >= Math.pow(256, 4 - (nums.length - 1))) return null
+    var value = last
+    for (var j = 0; j < nums.length - 1; j++) {
+      if (nums[j] > 255) return null
+      value += nums[j] * Math.pow(256, 3 - j)
+    }
+    if (value < 0 || value > 4294967295) return null
+    return value
+  }
+
+  function isBlockedIpv4(v) {
+    var a = Math.floor(v / 16777216) % 256
+    var b = Math.floor(v / 65536) % 256
+    if (a === 0) return true                              // 0.0.0.0/8
+    if (a === 10) return true                             // RFC1918
+    if (a === 127) return true                            // loopback
+    if (a === 169 && b === 254) return true               // link-local, incl. 169.254.169.254
+    if (a === 172 && b >= 16 && b <= 31) return true      // RFC1918
+    if (a === 192 && b === 168) return true               // RFC1918
+    if (a === 100 && b >= 64 && b <= 127) return true     // CGNAT, and the tailnet range
+    if (a === 192 && b === 0) return true                 // IETF protocol assignments, TEST-NET-1
+    if (a === 198 && (b === 18 || b === 19)) return true  // benchmarking
+    if (a >= 224) return true                             // multicast, reserved, broadcast
+    return false
+  }
+
+  function isBlockedIpv6(host) {
+    var h = String(host).toLowerCase()
+    // IPv4-mapped and -compatible forms smuggle a v4 address through a v6 literal.
+    var mapped = h.match(/^::(?:ffff:)?([0-9.]+)$/)
+    if (mapped) {
+      var v = engine.toIpv4(mapped[1])
+      return v === null ? true : engine.isBlockedIpv4(v)
+    }
+    if (h === "::" || h === "::1") return true
+    if (/^fe[89ab]/.test(h)) return true    // fe80::/10 link-local
+    if (/^f[cd]/.test(h)) return true       // fc00::/7 unique local
+    if (/^ff/.test(h)) return true          // ff00::/8 multicast
+    return false
   }
 
   // Hosts whose URL yt-dlp is known to refuse. Deliberately short: yt-dlp owns
@@ -242,7 +367,7 @@ QtObject {
   }
 
   function fail(message) {
-    engine.errorText = String(message || "Download failed")
+    engine.errorText = engine.clamp(message || "Download failed", engine.maxMessageChars)
     engine.phase = "error"
   }
 
@@ -270,6 +395,35 @@ QtObject {
     // and Opus streams. --recode-video would fix the container by re-encoding
     // the whole file, which is not a trade worth making for a download button.
     return ["-t", "mkv", "-f", "bv*+ba/b"]
+  }
+
+  // --- bounds ---------------------------------------------------------------
+  //
+  // Neither Process nor StdioCollector can cap runtime or buffered output, so
+  // every child is bounded on the producing side instead: `timeout` is argv[0],
+  // which keeps the whole command in execve array form — no shell is re-entered
+  // to build a pipeline. SIGTERM first, SIGKILL after a grace period, so a hung
+  // or malicious server cannot pin a process inside the resident shell forever.
+  //
+  // Whatever still arrives is truncated before it is stored or rendered.
+
+  readonly property int probeDeadline: 90       // seconds
+  readonly property int shortDeadline: 30       // --version, -U, binary resolution
+  readonly property int downloadDeadline: 21600 // 6h: a long video on a slow line
+  readonly property int killGrace: 5
+
+  readonly property int maxFieldChars: 300      // one probe field
+  readonly property int maxMessageChars: 2000   // a stderr message shown to the user
+  readonly property int maxLineChars: 4000      // one progress line
+  readonly property int maxProbeLines: 200
+
+  function withDeadline(seconds, argv) {
+    return ["timeout", "-k", String(engine.killGrace), String(seconds)].concat(argv)
+  }
+
+  function clamp(value, limit) {
+    var text = String(value === undefined || value === null ? "" : value)
+    return text.length > limit ? text.substring(0, limit) + "…" : text
   }
 
   function baseArgs() {
@@ -303,19 +457,21 @@ QtObject {
                           "--print", "playlist:OMP\t%(playlist_count,n_entries)s"])
     }
 
-    probeProcess.command = args.concat(["--simulate", "--print", engine.probePrint, "--", url])
+    probeProcess.command = engine.withDeadline(engine.probeDeadline,
+      args.concat(["--simulate", "--no-progress", "--print", engine.probePrint, "--", url]))
     probeProcess.running = true
   }
 
   // yt-dlp renders a missing field as the literal "NA", never as an empty
   // string, and pads every *_str field.
   function cleanField(value) {
-    var text = String(value || "").trim()
+    var text = engine.clamp(String(value || "").trim(), engine.maxFieldChars)
     return text === "NA" || text === "N/A" ? "" : text
   }
 
   function applyProbe(out) {
     var lines = String(out).split("\n")
+    if (lines.length > engine.maxProbeLines) lines = lines.slice(0, engine.maxProbeLines)
     for (var i = 0; i < lines.length; i++) {
       var f = lines[i].split("\t")
       if (f[0] === "OMV" && !engine.probeOk) {
@@ -385,7 +541,8 @@ QtObject {
     // semicolons in the URL or the directory are inert data. The trailing "--"
     // is load-bearing — a URL of "--version" would otherwise be read as a flag,
     // and this URL comes from metadata a page controls.
-    downloadProcess.command = engine.baseArgs()
+    downloadProcess.command = engine.withDeadline(engine.downloadDeadline,
+      engine.baseArgs()
       .concat(engine.formatArgs())
       .concat(["--newline", "--quiet", "--progress", "--progress-delta", "0.25",
                "--embed-metadata",
@@ -395,7 +552,7 @@ QtObject {
                "--progress-template", engine.progressTemplate,
                "--print", "before_dl:OMSTART\t%(title)s\t%(format)s",
                "--print", "after_move:OMDONE\t%(title)s\t%(filepath)s",
-               "--", url])
+               "--", url]))
     downloadProcess.running = true
   }
 
@@ -406,7 +563,7 @@ QtObject {
   }
 
   function onDownloadLine(raw) {
-    var f = String(raw).split("\t")
+    var f = engine.clamp(raw, engine.maxLineChars).split("\t")
 
     if (f[0] === "OMSTART") {
       engine.doneTitle = engine.cleanField(f[1]) || engine.doneTitle
@@ -469,19 +626,56 @@ QtObject {
   property var rawSettings: ({})
   property bool applyingSettings: false
 
-  function loadSettings(text) {
-    var parsed = {}
-    try { parsed = JSON.parse(String(text || "{}")) || {} } catch (e) { return }
-    if (typeof parsed !== "object") return
+  readonly property int maxSettingsBytes: 64 * 1024
+  readonly property int maxPathChars: 4096
+  readonly property int maxUnknownKeys: 32
 
-    engine.rawSettings = parsed
+  function loadSettings(text) {
+    // A state file is not a trusted input just because it lives under $HOME:
+    // anything with write access to the directory can replace it. Bound it
+    // before parsing, and again before anything reaches a property.
+    var raw = String(text || "{}")
+    if (raw.length > engine.maxSettingsBytes) {
+      console.warn("io.github.theflngdutchman.dashboard-dl: settings file too large, ignoring")
+      return
+    }
+
+    var parsed = {}
+    try { parsed = JSON.parse(raw) || {} } catch (e) { return }
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return
+
+    // Unknown keys are round-tripped so a newer version's settings survive an
+    // older one, but an unbounded number of them is just a growth vector.
+    var known = { version: 1, audioOnly: 1, confirmFirst: 1, audioDir: 1, videoDir: 1, ytdlpPath: 1 }
+    var kept = ({})
+    var extras = 0
+    for (var k in parsed) {
+      if (known[k]) { kept[k] = parsed[k]; continue }
+      if (extras >= engine.maxUnknownKeys) continue
+      var v = parsed[k]
+      var t = typeof v
+      if (t !== "string" && t !== "number" && t !== "boolean") continue
+      kept[k] = t === "string" ? engine.clamp(v, engine.maxPathChars) : v
+      extras++
+    }
+
+    engine.rawSettings = kept
     engine.applyingSettings = true
     if (typeof parsed.audioOnly === "boolean") engine.audioOnly = parsed.audioOnly
     if (typeof parsed.confirmFirst === "boolean") engine.confirmFirst = parsed.confirmFirst
-    if (typeof parsed.audioDir === "string" && parsed.audioDir !== "") engine.audioDir = parsed.audioDir
-    if (typeof parsed.videoDir === "string" && parsed.videoDir !== "") engine.videoDir = parsed.videoDir
-    if (typeof parsed.ytdlpPath === "string") engine.ytdlpPath = parsed.ytdlpPath
+    if (engine.isUsablePath(parsed.audioDir)) engine.audioDir = engine.clamp(parsed.audioDir, engine.maxPathChars)
+    if (engine.isUsablePath(parsed.videoDir)) engine.videoDir = engine.clamp(parsed.videoDir, engine.maxPathChars)
+    if (typeof parsed.ytdlpPath === "string") engine.ytdlpPath = engine.clamp(parsed.ytdlpPath, engine.maxPathChars)
     engine.applyingSettings = false
+  }
+
+  // A destination is passed to yt-dlp as --paths. Newlines and NULs in an argv
+  // entry are not a shell problem here (there is no shell) but they do produce
+  // unreadable paths and confusing errors, so reject them outright.
+  function isUsablePath(value) {
+    if (typeof value !== "string" || value === "") return false
+    if (value.length > engine.maxPathChars) return false
+    return !/[\u0000-\u001f]/.test(value)
   }
 
   function saveSettings() {
@@ -532,7 +726,7 @@ QtObject {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        var found = String(text || "").trim()
+        var found = engine.clamp(String(text || "").trim(), 4096)
         if (found !== "") engine.ytdlpBinary = found
         engine.readVersion()
       }
@@ -542,25 +736,7 @@ QtObject {
   property Process versionProcess: Process {
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: engine.ytdlpVersion = String(text || "").trim()
-    }
-  }
-
-  property string updateStdout: ""
-  property string updateStderr: ""
-
-  property Process updateProcess: Process {
-    stdout: StdioCollector { waitForEnd: true; onStreamFinished: engine.updateStdout = String(text || "").trim() }
-    stderr: StdioCollector { waitForEnd: true; onStreamFinished: engine.updateStderr = String(text || "").trim() }
-    onExited: function(exitCode) {
-      engine.updating = false
-      // A distro build refuses with "you installed with a package manager; use
-      // that to update", which is the useful answer — show it rather than a
-      // generic failure.
-      var out = engine.updateStderr !== "" ? engine.updateStderr : engine.updateStdout
-      var lines = String(out).split("\n")
-      engine.updateResult = lines.length > 0 ? lines[lines.length - 1].trim() : ""
-      engine.readVersion()
+      onStreamFinished: engine.ytdlpVersion = engine.clamp(String(text || "").trim(), engine.maxFieldChars)
     }
   }
 
@@ -571,7 +747,7 @@ QtObject {
     }
     stderr: StdioCollector {
       waitForEnd: true
-      onStreamFinished: engine.probeStderr = String(text || "").trim()
+      onStreamFinished: engine.probeStderr = engine.clamp(String(text || "").trim(), engine.maxMessageChars)
     }
     onExited: function(exitCode) {
       if (engine.phase !== "probing") return
@@ -588,7 +764,7 @@ QtObject {
     stdout: SplitParser { onRead: function(line) { engine.onDownloadLine(line) } }
     stderr: StdioCollector {
       waitForEnd: true
-      onStreamFinished: engine.downloadStderr = String(text || "").trim()
+      onStreamFinished: engine.downloadStderr = engine.clamp(String(text || "").trim(), engine.maxMessageChars)
     }
     onExited: function(exitCode) {
       // Cancellation is tracked explicitly: a SIGTERM death reports as a crash

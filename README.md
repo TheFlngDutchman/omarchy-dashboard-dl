@@ -94,7 +94,7 @@ The gear opens the download settings.
 | Audio folder | `~/Music` | Stored unexpanded, so it stays portable |
 | Video folder | `~/Videos` | |
 | Confirm before downloading | On | See above |
-| yt-dlp | auto-detected | Shows the resolved binary and version, with an `Update` button |
+| yt-dlp | auto-detected | Shows the resolved binary and version (read-only) |
 
 `mkv` rather than `mp4` is deliberate: forcing `mp4` pins h264/aac and discards
 the better AV1/VP9 and Opus streams, and fixing the container afterwards would
@@ -126,13 +126,22 @@ lags upstream by weeks — and **a stale `yt-dlp` is what produces YouTube's
 `HTTP Error 403: Forbidden`.** The settings view shows which binary was resolved
 and its version, so you can check that before blaming anything else.
 
-The `Update` button runs `yt-dlp -U`. It only works on a standalone build;
-package-manager installs refuse to self-update.
+**There is no in-plugin updater.** A bar widget should not be able to replace an
+executable from the network on a click, so `yt-dlp -U` is not wired up: update
+yt-dlp with whatever installed it. The settings view is read-only about the
+binary — it shows the resolved path and version so a stale build is visible
+without leaving the panel.
 
 ### What it will not do
 
 - **Local files.** Nothing to fetch.
-- **Local network streams.** Private hosts are rejected.
+- **Anything that is not a public address.** The URL is parsed strictly and the
+  host is checked against loopback, RFC1918, link-local (including
+  `169.254.169.254`), CGNAT/tailnet `100.64.0.0/10`, IPv6 loopback/ULA/link-local,
+  multicast, bare hostnames, and `.local` / `.internal` / `.home.arpa` names.
+  IPv4 written in decimal, octal or hex is normalised first, and a URL carrying
+  userinfo (`http://youtube.com@10.0.0.1/`) is refused outright. Anything that
+  does not parse cleanly is refused rather than guessed at.
 - **DRM services.** Spotify, Tidal, Deezer and Amazon Music hand over
   well-formed URLs that `yt-dlp` refuses outright, so these are rerouted to a
   tag search instead of failing. `yt-dlp` owns the authoritative blocklist; its
@@ -192,10 +201,24 @@ Everything in this section apart from **Download** comes from
   Optional — the rest of the dashboard works without it. A self-updating
   standalone build is strongly preferred:
 
+  Prefer your distribution's package. If you install the standalone build
+  instead, pin a release and verify it — `releases/latest` is a mutable pointer,
+  and an unverified binary is an unreviewed one:
+
   ```bash
-  curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux \
-    -o ~/.local/bin/yt-dlp && chmod +x ~/.local/bin/yt-dlp
+  VERSION=2026.08.19
+  SHA256=58162f9bfdc27458ea47bfcb311cf47028f17d8154a8bf7d689861d46399230a
+
+  curl -fL --proto '=https' \
+    "https://github.com/yt-dlp/yt-dlp/releases/download/${VERSION}/yt-dlp_linux" \
+    -o /tmp/yt-dlp_linux
+  echo "${SHA256}  /tmp/yt-dlp_linux" | sha256sum -c - \
+    && install -m755 /tmp/yt-dlp_linux ~/.local/bin/yt-dlp
   ```
+
+  Check the current version and its checksum against
+  [yt-dlp's releases](https://github.com/yt-dlp/yt-dlp/releases) — every release
+  publishes a `SHA2-256SUMS` file.
 
   `ffmpeg` is also needed for audio extraction and for muxing separate video and
   audio streams.
@@ -424,6 +447,42 @@ spaces, semicolons and leading dashes in a URL or folder name are inert data
 rather than shell syntax. This matters because the URL comes from metadata that a
 web page controls.
 
+### Bounds on untrusted input
+
+Everything below the button press treats player metadata and `yt-dlp` output as
+hostile, because a web page writes the first and a remote site writes the second.
+
+- **Arguments** are passed in array form and terminated with `--` (above). No
+  shell is re-entered anywhere in the download path.
+- **Addresses** are parsed strictly and must resolve to a public host — see
+  [What it will not do](#what-it-will-not-do). The same check is applied again to
+  the URL actually handed to `yt-dlp`, because after a probe that URL is
+  `yt-dlp`'s own `webpage_url`, which the remote page controls.
+- **Runtime** is bounded on the producing side: every child runs under
+  `timeout -k 5`, so a hung or hostile endpoint cannot pin a process inside the
+  long-running shell. Nothing relies on the plugin noticing.
+- **Output** is truncated before it is stored or rendered — per probe field, per
+  progress line, and per error message.
+- **Rendering** forces `Text.PlainText` on every component that displays this
+  data. Qt's default `AutoText` would sniff a title like
+  `<img src="http://host/x">` as rich text and fetch it.
+- **The weather fetch** is capped with `--max-time`, `--max-filesize`,
+  `--proto '=https'` and `--no-location`.
+- **The settings file** is size-capped before parsing, type-checked per key,
+  string-clamped, and limited in how many unknown keys it round-trips. Writes go
+  through `FileView`'s `atomicWrites` (temp file plus rename).
+
+Two gaps are worth stating rather than papering over:
+
+- A **public hostname that resolves to a private address** (DNS rebinding) is not
+  detectable here — QML cannot resolve names, so the policy applies to the
+  literal host only.
+- **`yt-dlp` follows redirects internally**, so a public URL that redirects to a
+  private one is not seen by this plugin.
+
+Both are bounded by the fact that a download only ever starts from an explicit
+press on a track you are already playing.
+
 ## Troubleshooting
 
 ### The plugin does not appear
@@ -462,9 +521,9 @@ is a local file, or the player exposes no usable track information.
 ### Downloads fail with `HTTP Error 403: Forbidden`
 
 Almost always a stale `yt-dlp`. Open the download settings and check the version
-and the resolved path. If it is a distribution package, install the standalone
-build under `~/.local/bin` (see [Requirements](#requirements)) and press
-`Update`.
+and the resolved path, then update that binary through whatever installed it —
+your package manager, or a fresh verified download (see
+[Requirements](#requirements)). The plugin will not update it for you.
 
 ### The download grabbed the wrong video
 

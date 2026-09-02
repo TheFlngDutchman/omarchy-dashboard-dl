@@ -88,7 +88,7 @@ Panel {
   // empty value and overwrite the saved folder.
   function commitTargetDir(value) {
     var next = String(value || "").trim()
-    if (next === "" || next === downloads.targetDir) {
+    if (next === "" || next === downloads.targetDir || !downloads.isUsablePath(next)) {
       dirField.text = downloads.targetDir
       return
     }
@@ -167,7 +167,12 @@ Panel {
       + "&longitude=" + encodeURIComponent(longitude)
       + "&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,is_day"
       + "&daily=weather_code,temperature_2m_max,temperature_2m_min&forecast_days=5&timezone=auto"
-    weatherProcess.command = ["curl", "-fsS", "--max-time", "8", url]
+    // Bounded on the producing side: a deadline, a response ceiling, and no
+    // redirect following, so a hijacked or hostile endpoint cannot stream an
+    // unbounded body into the resident shell process.
+    weatherProcess.command = ["curl", "-fsS", "--max-time", "8",
+                              "--max-filesize", "1048576", "--proto", "=https",
+                              "--no-location", url]
     weatherProcess.running = true
   }
 
@@ -181,16 +186,25 @@ Panel {
     } catch (e) {}
   }
 
+  // textFormat is not optional here. Text defaults to Text.AutoText, which
+  // sniffs for markup and switches to rich text — and almost everything these
+  // two render is attacker-influenced: MPRIS track titles and artists come from
+  // whatever a web page put in its Media Session, and yt-dlp titles, uploader
+  // names and error strings come from a remote page. A title of
+  // <img src="http://host/x"> would otherwise become an outbound request from
+  // the shell process.
   component LabelText: Text {
     color: root.foreground
     font.family: root.fontFamily
     font.pixelSize: Style.font.body
+    textFormat: Text.PlainText
   }
 
   component MutedText: Text {
     color: Qt.darker(root.foreground, 1.5)
     font.family: root.fontFamily
     font.pixelSize: Style.font.bodySmall
+    textFormat: Text.PlainText
   }
 
   component Card: BorderSurface {
@@ -999,24 +1013,16 @@ Panel {
                       elide: Text.ElideMiddle
                     }
                   }
-                  Button {
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: downloads.updating ? "…" : "Update"
-                    bordered: true
-                    foreground: root.foreground
-                    accent: Color.accent
-                    fontFamily: root.fontFamily
-                    // A packaged build refuses to self-update; the result line
-                    // below reports that rather than the button hiding it.
-                    enabled: !downloads.updating && !downloads.busy
-                    opacity: enabled ? 1 : 0.45
-                    onClicked: downloads.updateBinary()
-                  }
                 }
+                // No in-plugin updater. Replacing an executable from the
+                // network is not something a bar widget should be able to do
+                // on a click, so updating yt-dlp is left to whatever installed
+                // it. The resolved path and version above are shown so a stale
+                // binary — the usual cause of YouTube's HTTP 403 — is visible
+                // without leaving the panel.
                 MutedText {
                   width: parent.width
-                  visible: downloads.updateResult !== ""
-                  text: downloads.updateResult
+                  text: "Update yt-dlp with whatever installed it — see the README."
                   wrapMode: Text.WordWrap
                   font.pixelSize: Style.font.caption
                 }
