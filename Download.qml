@@ -98,13 +98,13 @@ QtObject {
       script += "if [ -x " + quoted + " ]; then printf '%s' " + quoted + "; exit 0; fi\n"
     }
     script += "command -v yt-dlp 2>/dev/null || printf 'yt-dlp'"
-    resolveProcess.command = engine.withDeadline(engine.shortDeadline, ["bash", "-lc", script])
+    resolveProcess.command = engine.bounded(engine.shortDeadline, engine.smallCap, engine.errCap, ["bash", "-lc", script])
     resolveProcess.running = true
   }
 
   function readVersion() {
     if (versionProcess.running) return
-    versionProcess.command = engine.withDeadline(engine.shortDeadline, [engine.ytdlpBinary, "--version"])
+    versionProcess.command = engine.bounded(engine.shortDeadline, engine.smallCap, engine.errCap, [engine.ytdlpBinary, "--version"])
     versionProcess.running = true
   }
 
@@ -128,9 +128,10 @@ QtObject {
       if (!engine.isPublicHttpUrl(url))
         return { ok: false, reason: "Local or private address — nothing to fetch" }
       // A DRM host hands over a perfectly well-formed URL that yt-dlp refuses
-      // outright. For a music service the useful answer is a search on the
+      // outright, and an origin outside the authorized list is not fetched
+      // directly at all. In both cases the useful answer is a search on the
       // tags, so fall through rather than fail.
-      if (!engine.isRerouteHost(lower))
+      if (!engine.isRerouteHost(lower) && engine.isAuthorizedHttpUrl(url))
         return { ok: true, kind: "exact", url: url, label: url }
     }
 
@@ -160,7 +161,7 @@ QtObject {
   function isFetchable(url) {
     var value = String(url || "")
     if (value.indexOf("ytsearch") === 0) return true
-    return engine.isPublicHttpUrl(value)
+    return engine.isAuthorizedHttpUrl(value)
   }
 
   // --- address policy -------------------------------------------------------
@@ -171,21 +172,60 @@ QtObject {
   // the tailnet, or a cloud metadata endpoint.
   //
   // Everything below is fail-closed: anything that does not parse cleanly into
-  // a public address is refused. Two residual gaps are worth stating plainly
-  // rather than papering over:
-  //
-  //   - A public hostname that *resolves* to a private address (DNS rebinding)
-  //     is not detectable here. QML cannot resolve names, so the policy is
-  //     applied to the literal host only.
-  //   - yt-dlp follows redirects internally, so a public URL that 302s to a
-  //     private one is not seen by this code.
-  //
-  // Both are bounded by the fact that a download only ever starts from an
-  // explicit button press on a track the user is already playing.
+  // a public address is refused. Two gaps are not closable from QML — a public
+  // hostname that *resolves* to a private address (QML cannot resolve names),
+  // and a redirect yt-dlp follows internally. They are why the parse-and-deny
+  // checks here are only the first gate: direct fetches additionally require an
+  // authorized origin (see below), whose redirects and DNS the user already
+  // trusts with playback.
 
   function isPublicHttpUrl(raw) {
     var parsed = engine.parseHttpUrl(raw)
     return parsed !== null && !engine.isBlockedHost(parsed.host)
+  }
+
+  // --- authorized origins -----------------------------------------------------
+  //
+  // The private-address checks above act on the literal host, which leaves two
+  // gaps a hostile page could use: a public name that resolves to a private
+  // address, and a public URL that redirects to a private one inside yt-dlp.
+  // Rather than pretend those are closable from QML, downloads are restricted
+  // to known public media origins. For anything else the plugin falls back to
+  // the tag search — the same route it already takes for DRM services — so an
+  // unlisted site degrades to a confirmable YouTube search instead of an error.
+  //
+  // `extraOrigins` in the settings file extends the list for people who play
+  // from origins not named here (a PeerTube instance, say). Adding one is a
+  // deliberate act: it authorizes that origin's redirects and DNS.
+
+  readonly property var defaultOrigins: [
+    "youtube.com", "youtu.be",
+    "vimeo.com",
+    "soundcloud.com",
+    "bandcamp.com",
+    "twitch.tv",
+    "dailymotion.com", "dai.ly",
+    "media.ccc.de",
+    "archive.org"
+  ]
+
+  property var extraOrigins: []
+
+  function isAuthorizedOrigin(host) {
+    var origins = engine.defaultOrigins.concat(engine.extraOrigins)
+    for (var i = 0; i < origins.length; i++) {
+      var o = String(origins[i])
+      if (host === o || host.length > o.length + 1 && host.lastIndexOf("." + o) === host.length - o.length - 1)
+        return true
+    }
+    return false
+  }
+
+  function isAuthorizedHttpUrl(raw) {
+    var parsed = engine.parseHttpUrl(raw)
+    return parsed !== null
+      && !engine.isBlockedHost(parsed.host)
+      && engine.isAuthorizedOrigin(parsed.host)
   }
 
   // A deliberately strict parser. Returns null rather than guessing.
@@ -408,17 +448,54 @@ QtObject {
   // Whatever still arrives is truncated before it is stored or rendered.
 
   readonly property int probeDeadline: 90       // seconds
-  readonly property int shortDeadline: 30       // --version, -U, binary resolution
+  readonly property int shortDeadline: 30       // --version, binary resolution
   readonly property int downloadDeadline: 21600 // 6h: a long video on a slow line
-  readonly property int killGrace: 5
+
+  readonly property int probeOutCap: 262144     // bytes of probe stdout
+  readonly property int downloadOutCap: 16777216 // progress lines over six hours
+  readonly property int smallCap: 16384         // resolve / version output
+  readonly property int errCap: 65536           // any child's stderr
 
   readonly property int maxFieldChars: 300      // one probe field
   readonly property int maxMessageChars: 2000   // a stderr message shown to the user
   readonly property int maxLineChars: 4000      // one progress line
   readonly property int maxProbeLines: 200
 
-  function withDeadline(seconds, argv) {
-    return ["timeout", "-k", String(engine.killGrace), String(seconds)].concat(argv)
+  // The launcher every child runs under. StdioCollector buffers a stream in
+  // full before QML sees it, and `timeout` bounds seconds, not bytes — so the
+  // byte ceiling has to sit inside the pipeline, before the stream reaches the
+  // resident shell process. This is the one place a shell is used, and the
+  // untrusted arguments never pass through shell parsing: they arrive as
+  // positional parameters and are expanded only as "$@".
+  //
+  //  - `head -c` is the hard per-stream ceiling. A producer that overruns it
+  //    gets SIGPIPE on its next write, which `pipefail` turns into a non-zero
+  //    exit: overflow fails closed instead of truncating silently.
+  //  - `timeout --foreground` keeps the whole tree in the job's process group
+  //    (without --foreground it moves itself into its own group, out of reach),
+  //    so one group kill covers yt-dlp and anything it spawned.
+  //  - The subshell makes $! the job's process-group leader; `set -m` gives
+  //    that job its own group, so the sweep cannot touch the shell process.
+  //  - sweep() runs on TERM/INT/HUP *and* after wait, which also clears a
+  //    producer that stalls after overflowing instead of writing again.
+  //
+  // Verified: normal exit 0 passthrough; flood capped at the ceiling with exit
+  // 141; deadline exit 124; SIGTERM kills the group including grandchildren.
+  readonly property string launcherScript:
+      'set -o pipefail\n'
+    + 'set -m\n'
+    + 'deadline="$1"; ocap="$2"; ecap="$3"; shift 3\n'
+    + '( { timeout --foreground -k 5 "$deadline" "$@" 2>&1 1>&3 | head -c "$ecap" >&2; } 3>&1 | head -c "$ocap" ) &\n'
+    + 'job=$!\n'
+    + 'sweep() { kill -TERM -- -"$job" 2>/dev/null; }\n'
+    + 'trap sweep TERM INT HUP\n'
+    + 'wait "$job"; status=$?\n'
+    + 'sweep\n'
+    + 'exit "$status"\n'
+
+  function bounded(seconds, outCap, errCapArg, argv) {
+    return ["bash", "-c", engine.launcherScript, "dashboard-dl-run",
+            String(seconds), String(outCap), String(errCapArg)].concat(argv)
   }
 
   function clamp(value, limit) {
@@ -457,7 +534,7 @@ QtObject {
                           "--print", "playlist:OMP\t%(playlist_count,n_entries)s"])
     }
 
-    probeProcess.command = engine.withDeadline(engine.probeDeadline,
+    probeProcess.command = engine.bounded(engine.probeDeadline, engine.probeOutCap, engine.errCap,
       args.concat(["--simulate", "--no-progress", "--print", engine.probePrint, "--", url]))
     probeProcess.running = true
   }
@@ -541,7 +618,7 @@ QtObject {
     // semicolons in the URL or the directory are inert data. The trailing "--"
     // is load-bearing — a URL of "--version" would otherwise be read as a flag,
     // and this URL comes from metadata a page controls.
-    downloadProcess.command = engine.withDeadline(engine.downloadDeadline,
+    downloadProcess.command = engine.bounded(engine.downloadDeadline, engine.downloadOutCap, engine.errCap,
       engine.baseArgs()
       .concat(engine.formatArgs())
       .concat(["--newline", "--quiet", "--progress", "--progress-delta", "0.25",
@@ -646,7 +723,7 @@ QtObject {
 
     // Unknown keys are round-tripped so a newer version's settings survive an
     // older one, but an unbounded number of them is just a growth vector.
-    var known = { version: 1, audioOnly: 1, confirmFirst: 1, audioDir: 1, videoDir: 1, ytdlpPath: 1 }
+    var known = { version: 1, audioOnly: 1, confirmFirst: 1, audioDir: 1, videoDir: 1, ytdlpPath: 1, extraOrigins: 1 }
     var kept = ({})
     var extras = 0
     for (var k in parsed) {
@@ -666,7 +743,25 @@ QtObject {
     if (engine.isUsablePath(parsed.audioDir)) engine.audioDir = engine.clamp(parsed.audioDir, engine.maxPathChars)
     if (engine.isUsablePath(parsed.videoDir)) engine.videoDir = engine.clamp(parsed.videoDir, engine.maxPathChars)
     if (typeof parsed.ytdlpPath === "string") engine.ytdlpPath = engine.clamp(parsed.ytdlpPath, engine.maxPathChars)
+    engine.extraOrigins = engine.sanitizeOrigins(parsed.extraOrigins)
     engine.applyingSettings = false
+  }
+
+  // An origin from the settings file joins the download allowlist, so it gets
+  // the same shape check a hostname would: lowercase registrable-domain-like
+  // labels only. Anything else — an IP, a path, a stray scheme — is dropped,
+  // and a bounded number are kept.
+  function sanitizeOrigins(value) {
+    if (!Array.isArray(value)) return []
+    var out = []
+    for (var i = 0; i < value.length && out.length < 32; i++) {
+      var o = String(value[i] || "").toLowerCase().trim()
+      if (o.length < 4 || o.length > 253) continue
+      if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(o)) continue
+      if (engine.isBlockedHost(o)) continue
+      out.push(o)
+    }
+    return out
   }
 
   // A destination is passed to yt-dlp as --paths. Newlines and NULs in an argv
@@ -691,6 +786,7 @@ QtObject {
     payload.audioDir = engine.audioDir
     payload.videoDir = engine.videoDir
     payload.ytdlpPath = engine.ytdlpPath
+    payload.extraOrigins = engine.extraOrigins
     engine.rawSettings = payload
     settingsFile.setText(JSON.stringify(payload, null, 2) + "\n")
   }

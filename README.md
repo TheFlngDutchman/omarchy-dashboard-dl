@@ -95,6 +95,7 @@ The gear opens the download settings.
 | Video folder | `~/Videos` | |
 | Confirm before downloading | On | See above |
 | yt-dlp | auto-detected | Shows the resolved binary and version (read-only) |
+| `extraOrigins` | `[]` | Settings file only — additional origins allowed for direct fetch (see below) |
 
 `mkv` rather than `mp4` is deliberate: forcing `mp4` pins h264/aac and discards
 the better AV1/VP9 and Opus streams, and fixing the container afterwards would
@@ -142,6 +143,21 @@ without leaving the panel.
   IPv4 written in decimal, octal or hex is normalised first, and a URL carrying
   userinfo (`http://youtube.com@10.0.0.1/`) is refused outright. Anything that
   does not parse cleanly is refused rather than guessed at.
+- **Direct fetches from unlisted origins.** yt-dlp follows redirects and resolves
+  DNS internally, where this plugin cannot check every hop — so a URL is only
+  handed over directly when its origin is on the authorized list: YouTube,
+  Vimeo, SoundCloud, Bandcamp, Twitch, Dailymotion, media.ccc.de, archive.org
+  (subdomains included). Anything else falls back to the tag search, the same
+  route DRM services already take, so an unlisted site degrades to a confirmable
+  YouTube match rather than an error. To fetch directly from another origin —
+  a PeerTube instance, say — add it to `extraOrigins` in the settings file:
+
+  ```json
+  { "extraOrigins": ["framatube.org"] }
+  ```
+
+  Adding an origin is a deliberate act: it authorizes that origin's redirects
+  and DNS. Entries that are not plain public hostnames are ignored.
 - **DRM services.** Spotify, Tidal, Deezer and Amazon Music hand over
   well-formed URLs that `yt-dlp` refuses outright, so these are rerouted to a
   tag search instead of failing. `yt-dlp` owns the authoritative blocklist; its
@@ -458,11 +474,18 @@ hostile, because a web page writes the first and a remote site writes the second
   [What it will not do](#what-it-will-not-do). The same check is applied again to
   the URL actually handed to `yt-dlp`, because after a probe that URL is
   `yt-dlp`'s own `webpage_url`, which the remote page controls.
-- **Runtime** is bounded on the producing side: every child runs under
-  `timeout -k 5`, so a hung or hostile endpoint cannot pin a process inside the
-  long-running shell. Nothing relies on the plugin noticing.
-- **Output** is truncated before it is stored or rendered — per probe field, per
-  progress line, and per error message.
+- **Runtime and output are bounded on the producing side.** Every child runs
+  under a launcher that applies `timeout --foreground -k 5` and pipes each
+  stream through `head -c`, so a hard byte ceiling exists *before* anything
+  reaches the shell process — a producer that overruns it gets `SIGPIPE`, which
+  `pipefail` turns into a failure: overflow fails closed rather than truncating
+  silently. The launcher runs the job in its own process group and sweeps that
+  group on termination, cancellation, overflow and exit, so nothing yt-dlp
+  spawned can outlive it. The untrusted arguments enter the launcher as
+  positional parameters and are expanded only as `"$@"` — they never pass
+  through shell parsing.
+- **What survives the ceiling is truncated again** before it is stored or
+  rendered — per probe field, per progress line, and per error message.
 - **Rendering** forces `Text.PlainText` on every component that displays this
   data. Qt's default `AutoText` would sniff a title like
   `<img src="http://host/x">` as rich text and fetch it.
@@ -472,16 +495,13 @@ hostile, because a web page writes the first and a remote site writes the second
   string-clamped, and limited in how many unknown keys it round-trips. Writes go
   through `FileView`'s `atomicWrites` (temp file plus rename).
 
-Two gaps are worth stating rather than papering over:
-
-- A **public hostname that resolves to a private address** (DNS rebinding) is not
-  detectable here — QML cannot resolve names, so the policy applies to the
-  literal host only.
-- **`yt-dlp` follows redirects internally**, so a public URL that redirects to a
-  private one is not seen by this plugin.
-
-Both are bounded by the fact that a download only ever starts from an explicit
-press on a track you are already playing.
+Two gaps cannot be closed from QML, which can neither resolve names nor observe
+yt-dlp's redirects: DNS rebinding, and a public URL that redirects to a private
+one. Both are why direct fetches are restricted to the authorized origins above —
+within that list, redirects and DNS belong to origins you already trust with
+playback, and adding an origin via `extraOrigins` extends that trust explicitly.
+A download also only ever starts from an explicit press on a track you are
+already playing.
 
 ## Troubleshooting
 
