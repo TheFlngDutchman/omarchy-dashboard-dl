@@ -430,7 +430,10 @@ QtObject {
   // format that will actually be fetched.
   function formatArgs() {
     if (engine.audioOnly)
-      return ["-f", "bestaudio/best", "-x", "--audio-format", "best", "--audio-quality", "0"]
+      // Cover art: embed the thumbnail as jpg (needs python-mutagen for opus).
+      // Harmless under the probe's --simulate, which writes nothing.
+      return ["-f", "bestaudio/best", "-x", "--audio-format", "best", "--audio-quality", "0",
+              "--embed-thumbnail", "--convert-thumbnails", "jpg"]
     // mkv over mp4: -t mp4 forces h264/aac and throws away the better AV1/VP9
     // and Opus streams. --recode-video would fix the container by re-encoding
     // the whole file, which is not a trade worth making for a download button.

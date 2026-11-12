@@ -90,7 +90,7 @@ The gear opens the download settings.
 
 | Setting | Default | Notes |
 |---|---|---|
-| What to download | `Audio + video` | Audio-only extracts best audio at quality 0; audio + video muxes into `mkv` |
+| What to download | `Audio + video` | Audio-only extracts best audio at quality 0 and embeds the thumbnail as cover art; audio + video muxes into `mkv` |
 | Audio folder | `~/Music` | Stored unexpanded, so it stays portable |
 | Video folder | `~/Videos` | |
 | Confirm before downloading | On | See above |
@@ -238,6 +238,10 @@ Everything in this section apart from **Download** comes from
 
   `ffmpeg` is also needed for audio extraction and for muxing separate video and
   audio streams.
+
+  Audio-only downloads embed the thumbnail as cover art. For Opus files yt-dlp
+  needs `mutagen` for that: the standalone `yt-dlp_linux` build bundles it, the
+  Arch package does not, so install `python-mutagen` alongside it.
 
 This plugin is Linux- and Omarchy-specific. It cannot be used unchanged in an
 unrelated Quickshell configuration because it depends on Omarchy's `qs.Commons`
